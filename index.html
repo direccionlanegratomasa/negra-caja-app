@@ -731,7 +731,10 @@ function renderNuevo(app){
 
     <div class="card">
       <div class="card-head"><span class="card-num">7</span>Arqueo físico de efectivo</div>
-      <div class="card-body" id="denom-body"></div>
+      <div class="card-body">
+        <div class="photo-instruction">Cuenta TODO el dinero que hay físicamente en la caja ahora mismo, incluido el fondo inicial (<span id="arqueo-fondo-val">${money(c.fondo)}</span>) — no solo lo vendido hoy.</div>
+        <div id="denom-body"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -832,6 +835,7 @@ function refreshCalc(){
   setText('total-gastos-val', money(c.totalGastos));
   setText('cuadre-esperado-val', money(c.esperado));
   setText('cuadre-fondo-val', money(c.fondo));
+  setText('arqueo-fondo-val', money(c.fondo));
   setText('cuadre-contado-val', money(c.contadoEntregar));
 
   const diffEl = byId('cuadre-diferencia-val');
