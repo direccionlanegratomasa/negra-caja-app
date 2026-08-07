@@ -343,10 +343,23 @@ async function ghGetFile(path){
 }
 
 async function ghPutFile(path, content, message){
-  const res = await ghFetch(path, {
+  let res = await ghFetch(path, {
     method: 'PUT',
     body: JSON.stringify({ message: message || `guardar ${path}`, content: ghB64Encode(content) })
   });
+  if(res.status === 409){
+    // El archivo ya existe (por ejemplo, por un reintento o doble toque en Guardar).
+    // Recuperamos su sha actual y reintentamos como actualización en vez de fallar.
+    try{
+      const existing = await ghGetFile(path);
+      if(existing){
+        res = await ghFetch(path, {
+          method: 'PUT',
+          body: JSON.stringify({ message: message || `actualizar ${path}`, content: ghB64Encode(content), sha: existing.sha })
+        });
+      }
+    }catch(e){}
+  }
   if(!res.ok){
     const errBody = await res.text().catch(()=>String(res.status));
     throw new Error(`GitHub: no se pudo guardar ${path} (${res.status}) ${errBody}`);
@@ -406,7 +419,8 @@ let state = {
   toastMsg: null,
   historialUnlocked: false,
   historialUser: '',
-  confirmModal: null
+  confirmModal: null,
+  saving: false
 };
 
 function emptyForm(){
@@ -974,6 +988,7 @@ function handlePhoto(e){
 }
 
 async function handleGuardar(){
+  if(state.saving) return;
   const f = state.form;
   if(!f.empleado){ showNotice('Falta información', 'Selecciona el empleado que realiza el cierre.'); return; }
   if(!f.firmaEmpleado){ showNotice('Falta información', 'Selecciona quién entrega el efectivo para confirmar.'); return; }
@@ -997,6 +1012,10 @@ async function handleGuardar(){
 }
 
 async function guardarCierreDefinitivo(f, c){
+  if(state.saving) return;
+  state.saving = true;
+  const btn = byId('btn-guardar');
+  if(btn){ btn.disabled = true; btn.textContent = 'Guardando...'; }
   const uniqueId = f.fecha + '_' + slug(f.empleado) + '_' + Date.now();
   const entry = { ...f, ...c, savedAt: Date.now() };
 
@@ -1036,6 +1055,8 @@ async function guardarCierreDefinitivo(f, c){
       'No se pudo guardar el cierre',
       `Motivo: ${detalle}. Comprueba tu conexión a internet e inténtalo de nuevo. Si el problema continúa, prueba a quitar alguna foto y volver a tomarla (puede que el cierre tenga demasiadas fotos o alguna muy pesada).`
     );
+  }finally{
+    state.saving = false;
   }
 }
 
