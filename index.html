@@ -528,7 +528,7 @@ function renderSetupGate(msg){
           ${msg ? `<div class="photo-required" style="margin-bottom:12px">${esc(msg)}</div>` : ''}
           <div class="field">
             <label>Código de acceso</label>
-            <input type="password" id="setup-input" placeholder="Pega aquí el código">
+            <input type="text" id="setup-input" placeholder="Pega aquí el código" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
           </div>
           <button class="btn-print" id="setup-btn" type="button" style="margin-top:6px">Continuar</button>
         </div>
@@ -538,18 +538,21 @@ function renderSetupGate(msg){
   document.getElementById('setup-btn').onclick = async ()=>{
     const val = document.getElementById('setup-input').value.trim();
     if(!val){ return; }
-    setGhToken(val);
     const btn = document.getElementById('setup-btn');
     btn.textContent = 'Comprobando...';
     try{
       const res = await fetch(`${GH_API}/repos/${GH_OWNER}/${GH_REPO}`, {
         headers: { 'Authorization': `Bearer ${val}`, 'Accept': 'application/vnd.github+json' }
       });
-      if(!res.ok) throw new Error('código no válido');
+      if(!res.ok){
+        renderSetupGate(`El código no fue aceptado (código de error ${res.status}). Revisa que lo copiaste completo, sin espacios de más ni de menos.`);
+        return;
+      }
+      setGhToken(val);
       init();
     }catch(err){
-      localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
-      renderSetupGate('Ese código no funcionó. Revisa que lo copiaste completo e inténtalo de nuevo.');
+      const detalle = (err && err.message) ? err.message : String(err);
+      renderSetupGate(`No se pudo comprobar el código: ${detalle}. Revisa tu conexión a internet e inténtalo de nuevo.`);
     }
   };
 }
