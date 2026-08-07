@@ -431,6 +431,7 @@ function emptyForm(){
     fondoInicial: 0,
     tarjeta: 0,
     efectivoSistema: 0,
+    delivery: 0,
     retiros: [],
     cortesias: [],
     gastos: [],
@@ -455,8 +456,9 @@ function contadoEntregarOf(e){
 function calc(form){
   const tarjeta = Number(form.tarjeta)||0;
   const efSistema = Number(form.efectivoSistema)||0;
+  const delivery = Number(form.delivery)||0;
   const fondo = Number(form.fondoInicial)||0;
-  const totalVentas = tarjeta + efSistema;
+  const totalVentas = tarjeta + efSistema + delivery;
   const totalRetiros = form.retiros.reduce((s,x)=>s+(Number(x.monto)||0),0);
   const totalCortesias = form.cortesias.reduce((s,x)=>s+(Number(x.monto)||0),0);
   const totalGastos = form.gastos.reduce((s,x)=>s+(Number(x.monto)||0),0);
@@ -467,10 +469,12 @@ function calc(form){
   });
   // El fondo inicial se queda en caja para el día siguiente: no se entrega,
   // así que se descuenta tanto de lo esperado como de lo contado antes de comparar.
+  // El delivery no pasa por la caja física (se cobra aparte, por app/plataforma),
+  // así que no forma parte del efectivo esperado ni del cuadre.
   const esperado = efSistema - totalRetiros - totalGastos;
   const contadoEntregar = totalContado - fondo;
   const diferencia = contadoEntregar - esperado;
-  return { tarjeta, efSistema, fondo, totalVentas, totalRetiros, totalCortesias, totalGastos, totalContado, contadoEntregar, esperado, diferencia };
+  return { tarjeta, efSistema, delivery, fondo, totalVentas, totalRetiros, totalCortesias, totalGastos, totalContado, contadoEntregar, esperado, diferencia };
 }
 
 async function loadHistorial(){
@@ -710,6 +714,11 @@ function renderNuevo(app){
           <div class="field"><label>Total tarjeta (TPV)</label><input type="number" inputmode="decimal" id="f-tarjeta" placeholder="0.00" value="${f.tarjeta}" onfocus="this.select()"></div>
           <div class="field"><label>Total efectivo (sistema)</label><input type="number" inputmode="decimal" id="f-efsist" placeholder="0.00" value="${f.efectivoSistema}" onfocus="this.select()"></div>
         </div>
+        <div class="field" style="margin-bottom:0">
+          <label>Total delivery (app / plataforma)</label>
+          <input type="number" inputmode="decimal" id="f-delivery" placeholder="0.00" value="${f.delivery}" onfocus="this.select()">
+          <div class="hint" style="margin-top:6px">No pasa por la caja física ni afecta al cuadre — se cobra aparte por la plataforma.</div>
+        </div>
         <div class="subtotal-line"><span>Total ventas</span><span id="total-ventas-val">${money(c.totalVentas)}</span></div>
       </div>
     </div>
@@ -801,6 +810,7 @@ function renderNuevo(app){
   byId('f-fondo').oninput = e=>{ f.fondoInicial = e.target.value; refreshCalc(); };
   byId('f-tarjeta').oninput = e=>{ f.tarjeta = e.target.value; refreshCalc(); };
   byId('f-efsist').oninput = e=>{ f.efectivoSistema = e.target.value; refreshCalc(); };
+  byId('f-delivery').oninput = e=>{ f.delivery = e.target.value; refreshCalc(); };
   byId('f-obs').oninput = e=>{ f.observaciones = e.target.value; };
   byId('f-firma').onchange = e=>{ f.firmaEmpleado = e.target.value; };
 
@@ -1220,6 +1230,7 @@ function renderModal(app){
           <div class="sum-line"><span>Fondo inicial</span><span>${money(e.fondoInicial)}</span></div>
           <div class="sum-line"><span>Tarjeta</span><span>${money(e.tarjeta)}</span></div>
           <div class="sum-line"><span>Efectivo sistema</span><span>${money(e.efSistema)}</span></div>
+          <div class="sum-line"><span>Delivery</span><span>${money(e.delivery)}</span></div>
           <div class="sum-line"><span>Retiros</span><span>${money(e.totalRetiros)}</span></div>
           <div class="sum-line"><span>Cortesías</span><span>${money(e.totalCortesias)}</span></div>
           <div class="sum-line"><span>Gastos</span><span>${money(e.totalGastos)}</span></div>
@@ -1287,6 +1298,7 @@ function buildPrintHTML(e){
       <div class="p-row"><span>Fondo de caja inicial</span><span>${money(e.fondoInicial)}</span></div>
       <div class="p-row"><span>Total tarjeta (TPV)</span><span>${money(e.tarjeta)}</span></div>
       <div class="p-row"><span>Total efectivo (sistema)</span><span>${money(e.efSistema)}</span></div>
+      <div class="p-row"><span>Total delivery (app/plataforma)</span><span>${money(e.delivery)}</span></div>
       <div class="p-total"><span>Total ventas</span><span>${money(e.totalVentas)}</span></div>
 
       ${(e.retiros&&e.retiros.length) ? `
@@ -1404,11 +1416,11 @@ function csvNum(n){ return (Number(n)||0).toFixed(2).replace('.', ','); }
 
 function exportHistorialCSV(){
   if(state.historial.length === 0){ showNotice('Sin datos', 'No hay cierres guardados para exportar.'); return; }
-  const headers = ['Fecha','Empleado','Turno','Fondo inicial','Tarjeta','Efectivo sistema','Total ventas','Total retiros','Total cortesías','Total gastos','Efectivo esperado','Efectivo contado','Diferencia','Entregado por','Observaciones'];
+  const headers = ['Fecha','Empleado','Turno','Fondo inicial','Tarjeta','Efectivo sistema','Delivery','Total ventas','Total retiros','Total cortesías','Total gastos','Efectivo esperado','Efectivo contado','Diferencia','Entregado por','Observaciones'];
   const ordered = state.historial.slice().sort((a,b)=> (a.savedAt||0) - (b.savedAt||0));
   const rows = ordered.map(e=>[
     formatFecha(e.fecha), e.empleado||'', e.turno||'',
-    csvNum(e.fondoInicial), csvNum(e.tarjeta), csvNum(e.efSistema),
+    csvNum(e.fondoInicial), csvNum(e.tarjeta), csvNum(e.efSistema), csvNum(e.delivery),
     csvNum(e.totalVentas), csvNum(e.totalRetiros), csvNum(e.totalCortesias), csvNum(e.totalGastos),
     csvNum(e.esperado), csvNum(contadoEntregarOf(e)), csvNum(e.diferencia),
     e.firmaEmpleado||'', (e.observaciones||'').replace(/[\r\n]+/g,' ')
