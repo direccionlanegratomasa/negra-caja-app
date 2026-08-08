@@ -443,8 +443,7 @@ function emptyForm(){
     gastos: [],
     denom: {},
     observaciones: '',
-    fotoDataUrl: '',
-    firmaEmpleado: ''
+    fotoDataUrl: ''
   };
 }
 
@@ -745,8 +744,8 @@ function renderNuevo(app){
     <div class="card">
       <div class="card-head"><span class="card-num">8</span>Seguridad</div>
       <div class="card-body">
-        <div class="field">
-          <label>Foto de todo el efectivo contado (obligatoria, antes de ir a la caja fuerte)</label>
+        <div class="field" style="margin-bottom:0">
+          <label>Foto de todo el efectivo contado (opcional, antes de ir a la caja fuerte)</label>
           <div class="photo-instruction">Coloca todos los billetes boca arriba, con el número de serie visible, antes de hacer la foto.</div>
           <div class="photo-box" id="photo-box">
             ${f.fotoDataUrl ? `<img src="${f.fotoDataUrl}"><div class="hint">Foto adjunta correctamente</div>` : ''}
@@ -754,12 +753,7 @@ function renderNuevo(app){
               <input type="file" accept="image/*" capture="environment" id="f-foto" style="display:none">
               <button class="photo-btn" id="btn-foto" type="button">${f.fotoDataUrl ? 'Cambiar foto' : 'Tomar / subir foto'}</button>
             </div>
-            ${!f.fotoDataUrl ? '<div class="photo-required">Obligatoria: falta la foto del efectivo</div>' : ''}
           </div>
-        </div>
-        <div class="field" style="margin-bottom:0">
-          <label>Entregado por (firma / confirmación)</label>
-          <select id="f-firma">${selectOptions(EMPLEADOS_CIERRE, f.firmaEmpleado, 'Selecciona quién entrega')}</select>
         </div>
       </div>
     </div>
@@ -784,8 +778,6 @@ function renderNuevo(app){
   byId('f-empleado').onchange = e=>{ f.empleado = e.target.value; };
   byId('f-fondo').oninput = e=>{ f.fondoInicial = e.target.value; };
   byId('f-obs').oninput = e=>{ f.observaciones = e.target.value; };
-  byId('f-firma').onchange = e=>{ f.firmaEmpleado = e.target.value; };
-
   byId('btn-foto').onclick = ()=> byId('f-foto').click();
   byId('f-foto').onchange = handlePhoto;
 
@@ -974,11 +966,6 @@ async function handleGuardar(){
   if(state.saving) return;
   const f = state.form;
   if(!f.empleado){ showNotice('Falta información', 'Selecciona el empleado que realiza el cierre.'); return; }
-  if(!f.firmaEmpleado){ showNotice('Falta información', 'Selecciona quién entrega el efectivo para confirmar.'); return; }
-  if(!f.fotoDataUrl){
-    showNotice('Falta la foto del efectivo', 'Debes tomar la foto de todo el efectivo contado (billetes con el número de serie hacia arriba) antes de guardar el cierre.');
-    return;
-  }
   const c = calc(f);
   await guardarCierreDefinitivo(f, c);
 }
@@ -1196,7 +1183,6 @@ function renderModal(app){
       ${(e.retiros&&e.retiros.length) ? detailBlock('Retiros', e.retiros, RETIROS_FIELDS) : ''}
       ${e.observaciones ? `<div class="card"><div class="card-head"><span class="card-num">i</span>Observaciones</div><div class="card-body">${esc(e.observaciones)}</div></div>` : ''}
       ${e.fotoDataUrl ? `<div class="card"><div class="card-head"><span class="card-num">i</span>Foto del efectivo</div><div class="card-body"><img src="${e.fotoDataUrl}" style="width:100%;border-radius:8px"></div></div>` : ''}
-      <div class="card"><div class="card-head"><span class="card-num">i</span>Entregado por</div><div class="card-body">${esc(e.firmaEmpleado||'—')}</div></div>
       <button class="btn-print" id="btn-print-modal" type="button">Imprimir / Guardar PDF</button>
       <button class="modal-close" id="modal-close" type="button">Cerrar</button>
     </div>
@@ -1246,7 +1232,6 @@ function buildPrintHTML(e){
       </div>
 
       <div class="p-row"><span>Empleado que realiza el cierre</span><b>${esc(e.empleado||'—')}</b></div>
-      <div class="p-row"><span>Entregado por</span><b>${esc(e.firmaEmpleado||'—')}</b></div>
       <div class="p-row"><span>Fondo de caja retirado</span><span>${money(e.fondoInicial)}</span></div>
 
       <div class="p-section-title">Arqueo de caja</div>
@@ -1269,7 +1254,7 @@ function buildPrintHTML(e){
       ${e.observaciones ? `<div class="p-section-title">Observaciones</div><div class="p-line">${esc(e.observaciones)}</div>` : ''}
 
       <div class="p-sign">
-        <div>${esc(e.firmaEmpleado||'')}<div class="p-sign-line">Entrega (empleado)</div></div>
+        <div>${esc(e.empleado||'')}<div class="p-sign-line">Entrega (empleado)</div></div>
         <div>&nbsp;<div class="p-sign-line">Recibe (contable / caja fuerte)</div></div>
       </div>
     </div>
@@ -1356,7 +1341,7 @@ function csvNum(n){ return (Number(n)||0).toFixed(2).replace('.', ','); }
 
 function exportHistorialCSV(){
   if(state.historial.length === 0){ showNotice('Sin datos', 'No hay cierres guardados para exportar.'); return; }
-  const headers = ['Fecha','Empleado','Turno','Fondo retirado','Total efectivo','Total gastos','Total retiros','Total recaudación','Entregado por','Observaciones'];
+  const headers = ['Fecha','Empleado','Turno','Fondo retirado','Total efectivo','Total gastos','Total retiros','Total recaudación','Observaciones'];
   const ordered = state.historial.slice().sort((a,b)=> (a.savedAt||0) - (b.savedAt||0));
   const rows = ordered.map(e=>{
     const totalEfectivo = totalEfectivoOf(e);
@@ -1364,7 +1349,7 @@ function exportHistorialCSV(){
     return [
       formatFecha(e.fecha), e.empleado||'', e.turno||'',
       csvNum(e.fondoInicial), csvNum(totalEfectivo), csvNum(e.totalGastos), csvNum(e.totalRetiros), csvNum(totalRecaudacion),
-      e.firmaEmpleado||'', (e.observaciones||'').replace(/[\r\n]+/g,' ')
+      (e.observaciones||'').replace(/[\r\n]+/g,' ')
     ];
   });
   const csvContent = [headers, ...rows].map(r => r.map(csvEscape).join(';')).join('\r\n');
