@@ -156,14 +156,28 @@ input:focus, select:focus, textarea:focus{ outline:none; border-color: var(--bra
   border-top:1.5px dashed var(--line); font-weight:700; font-size:14px; font-family:var(--mono);
 }
 
-/* denominations grid */
-.denom-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:0 14px; }
-.denom-row{
-  display:grid; grid-template-columns: auto 54px; gap:8px; align-items:center;
-  padding:6px 0; border-bottom:1px solid var(--paper-alt);
+/* denominations with steppers */
+.denom-group-label{
+  font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
+  color:var(--ink-soft); margin:14px 0 4px;
 }
-.denom-row label{ font-size:13px; font-family:var(--mono); color:var(--ink); margin:0; }
-.denom-row input{ padding:6px; text-align:center; font-size:13.5px; }
+.denom-group-label:first-child{ margin-top:0; }
+.denom-row-v{
+  display:flex; justify-content:space-between; align-items:center;
+  padding:8px 0; border-bottom:1px solid var(--paper-alt);
+}
+.denom-label{ font-size:13.5px; font-family:var(--mono); color:var(--ink); }
+.stepper{ display:flex; align-items:center; gap:6px; }
+.stepper-btn{
+  width:30px; height:30px; border-radius:7px; border:1.5px solid var(--line); background:#fff;
+  font-size:18px; font-weight:700; color:var(--brand-deep); cursor:pointer;
+  display:flex; align-items:center; justify-content:center; line-height:1; padding:0;
+}
+.stepper-btn:active{ background:var(--brand-light); }
+.stepper-input{
+  width:46px; text-align:center; padding:6px 2px; font-size:14px; font-family:var(--mono);
+  border:1.5px solid var(--line); border-radius:7px;
+}
 
 /* cuadre summary */
 .sum-line{ display:flex; justify-content:space-between; padding:6px 0; font-size:13.5px; font-family:var(--mono); }
@@ -400,10 +414,6 @@ const RETIROS_FIELDS = [
   {key:'persona', label:'Quién realizó el retiro', type:'select', options:RETIRO_PERSONAS},
   {key:'motivo', label:'Motivo', type:'text'}
 ];
-const CORTESIAS_FIELDS = [
-  {key:'motivo', label:'Cliente / motivo', type:'text'},
-  {key:'autorizado', label:'Autorizado por', type:'select', options:AUTORIZADORES}
-];
 const GASTOS_FIELDS = [
   {key:'concepto', label:'Concepto del gasto', type:'text'},
   {key:'autorizado', label:'Autorizado por', type:'select', options:AUTORIZADORES},
@@ -429,11 +439,7 @@ function emptyForm(){
     empleado: '',
     turno: '',
     fondoInicial: 0,
-    tarjeta: 0,
-    efectivoSistema: 0,
-    delivery: 0,
     retiros: [],
-    cortesias: [],
     gastos: [],
     denom: {},
     observaciones: '',
@@ -447,34 +453,26 @@ function money(n){
   return n.toLocaleString('es-ES', {minimumFractionDigits:2, maximumFractionDigits:2}) + ' €';
 }
 
-function contadoEntregarOf(e){
-  if(e.contadoEntregar !== undefined) return e.contadoEntregar;
+function totalEfectivoOf(e){
+  if(e.totalEfectivo !== undefined) return e.totalEfectivo;
   // compatibilidad con cierres guardados antes de este ajuste
-  return (Number(e.totalContado)||0) - (Number(e.fondoInicial)||0);
+  return Number(e.totalContado)||0;
 }
 
 function calc(form){
-  const tarjeta = Number(form.tarjeta)||0;
-  const efSistema = Number(form.efectivoSistema)||0;
-  const delivery = Number(form.delivery)||0;
   const fondo = Number(form.fondoInicial)||0;
-  const totalVentas = tarjeta + efSistema + delivery;
-  const totalRetiros = form.retiros.reduce((s,x)=>s+(Number(x.monto)||0),0);
-  const totalCortesias = form.cortesias.reduce((s,x)=>s+(Number(x.monto)||0),0);
-  const totalGastos = form.gastos.reduce((s,x)=>s+(Number(x.monto)||0),0);
   let totalContado = 0;
   [...BILLETES, ...MONEDAS].forEach(d=>{
     const q = Number(form.denom[d])||0;
     totalContado += q*d;
   });
-  // El fondo inicial se queda en caja para el día siguiente: no se entrega,
-  // así que se descuenta tanto de lo esperado como de lo contado antes de comparar.
-  // El delivery no pasa por la caja física (se cobra aparte, por app/plataforma),
-  // así que no forma parte del efectivo esperado ni del cuadre.
-  const esperado = efSistema - totalRetiros - totalGastos;
-  const contadoEntregar = totalContado - fondo;
-  const diferencia = contadoEntregar - esperado;
-  return { tarjeta, efSistema, delivery, fondo, totalVentas, totalRetiros, totalCortesias, totalGastos, totalContado, contadoEntregar, esperado, diferencia };
+  // El saldo inicial se retira ANTES de contar, así que lo contado en el
+  // arqueo ya es directamente el efectivo del día (no se resta nada más).
+  const totalEfectivo = totalContado;
+  const totalRetiros = form.retiros.reduce((s,x)=>s+(Number(x.monto)||0),0);
+  const totalGastos = form.gastos.reduce((s,x)=>s+(Number(x.monto)||0),0);
+  const totalRecaudacion = totalEfectivo + totalGastos + totalRetiros;
+  return { fondo, totalContado, totalEfectivo, totalRetiros, totalGastos, totalRecaudacion };
 }
 
 async function loadHistorial(){
@@ -627,8 +625,8 @@ function render(){
     const c = calc(state.form);
     const tape = document.createElement('div');
     tape.id = 'tape';
-    tape.className = 'tape ' + (Math.abs(c.diferencia) < 0.005 ? 'diff-ok' : 'diff-bad');
-    tape.innerHTML = `<span class="lbl">Diferencia de caja</span><span class="val" id="tape-diff-val">${c.diferencia>0?'+':''}${money(c.diferencia)}</span>`;
+    tape.className = 'tape';
+    tape.innerHTML = `<span class="lbl">Total efectivo</span><span class="val" id="tape-diff-val">${money(c.totalEfectivo)}</span>`;
     stickyHead.appendChild(tape);
   }
 
@@ -690,7 +688,7 @@ function renderNuevo(app){
             <select id="f-turno">${selectOptions(TURNOS, f.turno, 'Selecciona turno')}</select>
           </div>
         </div>
-        <div class="field">
+        <div class="field" style="margin-bottom:0">
           <label>Empleado que realiza el cierre</label>
           <select id="f-empleado">${selectOptions(EMPLEADOS_CIERRE, f.empleado, 'Selecciona tu nombre')}</select>
         </div>
@@ -698,76 +696,54 @@ function renderNuevo(app){
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">2</span>Efectivo inicial</div>
+      <div class="card-head"><span class="card-num">2</span>Retira tu saldo inicial</div>
       <div class="card-body">
-        <div class="field">
-          <label>Fondo de caja con el que se inició el día</label>
+        <div class="photo-instruction">Antes de contar, retira y aparta el fondo de caja inicial. Ese dinero NO se cuenta en el arqueo — se queda para empezar mañana.</div>
+        <div class="field" style="margin-bottom:0">
+          <label>Fondo de caja retirado</label>
           <input type="number" inputmode="decimal" id="f-fondo" placeholder="0.00" value="${f.fondoInicial}" onfocus="this.select()">
         </div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">3</span>Ventas del día</div>
+      <div class="card-head"><span class="card-num">3</span>Arqueo de caja</div>
       <div class="card-body">
-        <div class="row2">
-          <div class="field"><label>Total tarjeta (TPV)</label><input type="number" inputmode="decimal" id="f-tarjeta" placeholder="0.00" value="${f.tarjeta}" onfocus="this.select()"></div>
-          <div class="field"><label>Total efectivo (sistema)</label><input type="number" inputmode="decimal" id="f-efsist" placeholder="0.00" value="${f.efectivoSistema}" onfocus="this.select()"></div>
-        </div>
-        <div class="field" style="margin-bottom:0">
-          <label>Total delivery (app / plataforma)</label>
-          <input type="number" inputmode="decimal" id="f-delivery" placeholder="0.00" value="${f.delivery}" onfocus="this.select()">
-          <div class="hint" style="margin-top:6px">No pasa por la caja física ni afecta al cuadre — se cobra aparte por la plataforma.</div>
-        </div>
-        <div class="subtotal-line"><span>Total ventas</span><span id="total-ventas-val">${money(c.totalVentas)}</span></div>
+        <div class="hint" style="margin-bottom:10px">Cuenta el efectivo que queda en caja después de retirar el fondo. Usa − / + o toca el número para escribirlo directo.</div>
+        <div id="denom-body"></div>
+        <div class="subtotal-line"><span>Total efectivo</span><span id="total-efectivo-val">${money(c.totalEfectivo)}</span></div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">4</span>Retiros (socios / propietarios)</div>
-      <div class="card-body" id="retiros-body"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><span class="card-num">5</span>Cortesías del TPV</div>
-      <div class="card-body" id="cortesias-body"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><span class="card-num">6</span>Gastos del día</div>
+      <div class="card-head"><span class="card-num">4</span>Gastos del día</div>
       <div class="card-body" id="gastos-body"></div>
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">7</span>Arqueo físico de efectivo</div>
+      <div class="card-head"><span class="card-num">5</span>Retiros (socios / propietarios)</div>
+      <div class="card-body" id="retiros-body"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-num">6</span>Total recaudación</div>
       <div class="card-body">
-        <div class="photo-instruction">Cuenta TODO el dinero que hay físicamente en la caja ahora mismo, incluido el fondo inicial (<span id="arqueo-fondo-val">${money(c.fondo)}</span>) — no solo lo vendido hoy.</div>
-        <div id="denom-body"></div>
+        <div class="sum-line"><span>Total efectivo</span><span>${money(c.totalEfectivo)}</span></div>
+        <div class="sum-line"><span>Total gastos</span><span>${money(c.totalGastos)}</span></div>
+        <div class="sum-line"><span>Total retiros</span><span>${money(c.totalRetiros)}</span></div>
+        <div class="sum-line total"><span>Total recaudación</span><span id="total-recaudacion-val">${money(c.totalRecaudacion)}</span></div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">8</span>Cuadre de caja</div>
-      <div class="card-body">
-        <div class="hint" style="margin-bottom:8px">El fondo de caja inicial (<span id="cuadre-fondo-val">${money(c.fondo)}</span>) se queda en caja para el día siguiente y no se descuenta del conteo, pero tampoco se entrega — por eso no cuenta aquí.</div>
-        <div class="sum-line"><span>Efectivo esperado a entregar</span><span id="cuadre-esperado-val">${money(c.esperado)}</span></div>
-        <div class="sum-line"><span>Efectivo contado a entregar</span><span id="cuadre-contado-val">${money(c.contadoEntregar)}</span></div>
-        <div class="sum-line total"><span>Diferencia</span>
-          <span class="badge ${Math.abs(c.diferencia)<0.005?'ok':'bad'}" id="cuadre-diferencia-val">${c.diferencia>0?'+':''}${money(c.diferencia)}</span>
-        </div>
-        <div class="hint" style="margin-top:8px">Si hay diferencia puedes guardar el cierre igual — anota el motivo en Observaciones.</div>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head"><span class="card-num">9</span>Observaciones</div>
+      <div class="card-head"><span class="card-num">7</span>Observaciones</div>
       <div class="card-body">
         <textarea id="f-obs" placeholder="Incidencias del día: errores de TPV, billetes falsos, clientes, etc.">${esc(f.observaciones)}</textarea>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">10</span>Seguridad</div>
+      <div class="card-head"><span class="card-num">8</span>Seguridad</div>
       <div class="card-body">
         <div class="field">
           <label>Foto de todo el efectivo contado (obligatoria, antes de ir a la caja fuerte)</label>
@@ -790,9 +766,8 @@ function renderNuevo(app){
   `;
   app.appendChild(wrap);
 
-  renderLineSection('retiros-body', f.retiros, 'retiros', RETIROS_FIELDS, 'Añadir retiro', c.totalRetiros);
-  renderLineSection('cortesias-body', f.cortesias, 'cortesias', CORTESIAS_FIELDS, 'Añadir cortesía', c.totalCortesias);
   renderLineSection('gastos-body', f.gastos, 'gastos', GASTOS_FIELDS, 'Añadir gasto', c.totalGastos);
+  renderLineSection('retiros-body', f.retiros, 'retiros', RETIROS_FIELDS, 'Añadir retiro', c.totalRetiros);
   renderDenom('denom-body', f.denom);
 
   const bar = document.createElement('div');
@@ -807,10 +782,7 @@ function renderNuevo(app){
   byId('f-fecha').oninput = e=>{ f.fecha = e.target.value; };
   byId('f-turno').onchange = e=>{ f.turno = e.target.value; };
   byId('f-empleado').onchange = e=>{ f.empleado = e.target.value; };
-  byId('f-fondo').oninput = e=>{ f.fondoInicial = e.target.value; refreshCalc(); };
-  byId('f-tarjeta').oninput = e=>{ f.tarjeta = e.target.value; refreshCalc(); };
-  byId('f-efsist').oninput = e=>{ f.efectivoSistema = e.target.value; refreshCalc(); };
-  byId('f-delivery').oninput = e=>{ f.delivery = e.target.value; refreshCalc(); };
+  byId('f-fondo').oninput = e=>{ f.fondoInicial = e.target.value; };
   byId('f-obs').oninput = e=>{ f.observaciones = e.target.value; };
   byId('f-firma').onchange = e=>{ f.firmaEmpleado = e.target.value; };
 
@@ -835,24 +807,13 @@ function refreshCalc(){
 
   const tapeEl = byId('tape');
   if(tapeEl){
-    tapeEl.className = 'tape ' + (Math.abs(c.diferencia) < 0.005 ? 'diff-ok' : 'diff-bad');
-    byId('tape-diff-val').textContent = (c.diferencia>0?'+':'') + money(c.diferencia);
+    byId('tape-diff-val').textContent = money(c.totalEfectivo);
   }
 
-  setText('total-ventas-val', money(c.totalVentas));
+  setText('total-efectivo-val', money(c.totalEfectivo));
   setText('total-retiros-val', money(c.totalRetiros));
-  setText('total-cortesias-val', money(c.totalCortesias));
   setText('total-gastos-val', money(c.totalGastos));
-  setText('cuadre-esperado-val', money(c.esperado));
-  setText('cuadre-fondo-val', money(c.fondo));
-  setText('arqueo-fondo-val', money(c.fondo));
-  setText('cuadre-contado-val', money(c.contadoEntregar));
-
-  const diffEl = byId('cuadre-diferencia-val');
-  if(diffEl){
-    diffEl.textContent = (c.diferencia>0?'+':'') + money(c.diferencia);
-    diffEl.className = 'badge ' + (Math.abs(c.diferencia)<0.005?'ok':'bad');
-  }
+  setText('total-recaudacion-val', money(c.totalRecaudacion));
 }
 
 function setText(id, value){
@@ -964,29 +925,37 @@ function renderDenom(containerId, denom){
   const el = byId(containerId);
   if(!el) return;
   const fmtLabel = (v)=> v>=1 ? `${v.toLocaleString('es-ES')} €` : `${v.toFixed(2).replace('.',',')} €`;
-  el.innerHTML = `
-    <div class="denom-grid">
-      <div>
-        ${BILLETES.map(v=>`
-          <div class="denom-row">
-            <label>Billete ${fmtLabel(v)}</label>
-            <input type="number" inputmode="numeric" min="0" data-denom="${v}" value="${denom[v] ?? 0}" placeholder="0" onfocus="this.select()">
-          </div>
-        `).join('')}
-      </div>
-      <div>
-        ${MONEDAS.map(v=>`
-          <div class="denom-row">
-            <label>${fmtLabel(v)}</label>
-            <input type="number" inputmode="numeric" min="0" data-denom="${v}" value="${denom[v] ?? 0}" placeholder="0" onfocus="this.select()">
-          </div>
-        `).join('')}
+  const rowsHtml = (list, tipo) => list.map(v=>`
+    <div class="denom-row-v">
+      <div class="denom-label">${tipo} ${fmtLabel(v)}</div>
+      <div class="stepper">
+        <button type="button" class="stepper-btn" data-denom="${v}" data-dir="-1">−</button>
+        <input type="number" inputmode="numeric" min="0" class="stepper-input" data-denom="${v}" value="${denom[v] ?? 0}" onfocus="this.select()">
+        <button type="button" class="stepper-btn" data-denom="${v}" data-dir="1">+</button>
       </div>
     </div>
+  `).join('');
+  el.innerHTML = `
+    <div class="denom-group-label">Billetes</div>
+    ${rowsHtml(BILLETES, 'Billete')}
+    <div class="denom-group-label">Monedas</div>
+    ${rowsHtml(MONEDAS, 'Moneda')}
   `;
-  el.querySelectorAll('input').forEach(inp=>{
+  el.querySelectorAll('.stepper-input').forEach(inp=>{
     inp.oninput = e=>{
       state.form.denom[e.target.dataset.denom] = e.target.value;
+      refreshCalc();
+    };
+  });
+  el.querySelectorAll('.stepper-btn').forEach(btn=>{
+    btn.onclick = ()=>{
+      const d = btn.dataset.denom;
+      const dir = Number(btn.dataset.dir);
+      const cur = Number(state.form.denom[d]) || 0;
+      const next = Math.max(0, cur + dir);
+      state.form.denom[d] = next;
+      const input = el.querySelector(`.stepper-input[data-denom="${d}"]`);
+      if(input) input.value = next;
       refreshCalc();
     };
   });
@@ -1011,17 +980,6 @@ async function handleGuardar(){
     return;
   }
   const c = calc(f);
-  if(Math.abs(c.diferencia) >= 0.005){
-    openConfirm({
-      title: 'Hay una diferencia de caja',
-      message: `La diferencia es de ${c.diferencia>0?'+':''}${money(c.diferencia)}. Puedes guardar el cierre igualmente — es algo que puede pasar. Procura anotar el motivo en Observaciones antes de guardar. ¿Guardar así?`,
-      confirmLabel: 'Guardar igual',
-      cancelLabel: 'Revisar antes',
-      danger: true,
-      onConfirm: ()=> guardarCierreDefinitivo(f, c)
-    });
-    return;
-  }
   await guardarCierreDefinitivo(f, c);
 }
 
@@ -1100,12 +1058,12 @@ function renderHistorial(app){
       <div class="hist-item" data-idx="${idx}">
         <div class="hist-top">
           <span class="hist-date">${formatFecha(e.fecha)}</span>
-          <span class="badge ${Math.abs(e.diferencia)<0.005?'ok':'bad'}">${e.diferencia>0?'+':''}${money(e.diferencia)}</span>
+          <span class="badge ok">${money(e.totalRecaudacion ?? 0)}</span>
         </div>
         <div class="hist-emp">${esc(e.empleado||'—')} · ${esc(e.turno||'sin turno')}</div>
         <div class="hist-nums">
-          <span>Ventas ${money(e.totalVentas)}</span>
-          <span>Contado ${money(e.totalContado)}</span>
+          <span>Efectivo ${money(totalEfectivoOf(e))}</span>
+          <span>Gastos ${money(e.totalGastos)}</span>
         </div>
       </div>
     `).join('');
@@ -1227,21 +1185,15 @@ function renderModal(app){
         <div class="card-head"><span class="card-num">i</span>${formatFecha(e.fecha)} — ${esc(e.empleado||'')}</div>
         <div class="card-body">
           <div class="sum-line"><span>Turno</span><span>${esc(e.turno||'—')}</span></div>
-          <div class="sum-line"><span>Fondo inicial</span><span>${money(e.fondoInicial)}</span></div>
-          <div class="sum-line"><span>Tarjeta</span><span>${money(e.tarjeta)}</span></div>
-          <div class="sum-line"><span>Efectivo sistema</span><span>${money(e.efSistema)}</span></div>
-          <div class="sum-line"><span>Delivery</span><span>${money(e.delivery)}</span></div>
-          <div class="sum-line"><span>Retiros</span><span>${money(e.totalRetiros)}</span></div>
-          <div class="sum-line"><span>Cortesías</span><span>${money(e.totalCortesias)}</span></div>
+          <div class="sum-line"><span>Fondo retirado</span><span>${money(e.fondoInicial)}</span></div>
+          <div class="sum-line"><span>Total efectivo</span><span>${money(totalEfectivoOf(e))}</span></div>
           <div class="sum-line"><span>Gastos</span><span>${money(e.totalGastos)}</span></div>
-          <div class="sum-line"><span>Efectivo esperado a entregar</span><span>${money(e.esperado)}</span></div>
-          <div class="sum-line"><span>Efectivo contado a entregar</span><span>${money(contadoEntregarOf(e))}</span></div>
-          <div class="sum-line total"><span>Diferencia</span><span class="badge ${Math.abs(e.diferencia)<0.005?'ok':'bad'}">${e.diferencia>0?'+':''}${money(e.diferencia)}</span></div>
+          <div class="sum-line"><span>Retiros</span><span>${money(e.totalRetiros)}</span></div>
+          <div class="sum-line total"><span>Total recaudación</span><span>${money(e.totalRecaudacion ?? (totalEfectivoOf(e)+(Number(e.totalGastos)||0)+(Number(e.totalRetiros)||0)))}</span></div>
         </div>
       </div>
-      ${(e.retiros&&e.retiros.length) ? detailBlock('Retiros', e.retiros, RETIROS_FIELDS) : ''}
-      ${(e.cortesias&&e.cortesias.length) ? detailBlock('Cortesías', e.cortesias, CORTESIAS_FIELDS) : ''}
       ${(e.gastos&&e.gastos.length) ? detailBlock('Gastos', e.gastos, GASTOS_FIELDS) : ''}
+      ${(e.retiros&&e.retiros.length) ? detailBlock('Retiros', e.retiros, RETIROS_FIELDS) : ''}
       ${e.observaciones ? `<div class="card"><div class="card-head"><span class="card-num">i</span>Observaciones</div><div class="card-body">${esc(e.observaciones)}</div></div>` : ''}
       ${e.fotoDataUrl ? `<div class="card"><div class="card-head"><span class="card-num">i</span>Foto del efectivo</div><div class="card-body"><img src="${e.fotoDataUrl}" style="width:100%;border-radius:8px"></div></div>` : ''}
       <div class="card"><div class="card-head"><span class="card-num">i</span>Entregado por</div><div class="card-body">${esc(e.firmaEmpleado||'—')}</div></div>
@@ -1274,7 +1226,6 @@ function fieldsToLine(fieldsConfig, item){
 }
 
 function buildPrintHTML(e){
-  const diffOk = Math.abs(e.diferencia) < 0.005;
   const denomRows = [...BILLETES.map(v=>['Billete', v]), ...MONEDAS.map(v=>['Moneda', v])]
     .map(([tipo,v])=>{
       const q = Number((e.denom||{})[v]) || 0;
@@ -1282,6 +1233,9 @@ function buildPrintHTML(e){
       const label = v>=1 ? v.toLocaleString('es-ES')+' €' : v.toFixed(2).replace('.',',')+' €';
       return `<div class="p-row"><span>${tipo} ${label} × ${q}</span><span>${money(q*v)}</span></div>`;
     }).join('');
+
+  const totalEfectivo = totalEfectivoOf(e);
+  const totalRecaudacion = e.totalRecaudacion ?? (totalEfectivo + (Number(e.totalGastos)||0) + (Number(e.totalRetiros)||0));
 
   return `
     <div class="p-sheet">
@@ -1293,38 +1247,24 @@ function buildPrintHTML(e){
 
       <div class="p-row"><span>Empleado que realiza el cierre</span><b>${esc(e.empleado||'—')}</b></div>
       <div class="p-row"><span>Entregado por</span><b>${esc(e.firmaEmpleado||'—')}</b></div>
+      <div class="p-row"><span>Fondo de caja retirado</span><span>${money(e.fondoInicial)}</span></div>
 
-      <div class="p-section-title">Efectivo inicial y ventas</div>
-      <div class="p-row"><span>Fondo de caja inicial</span><span>${money(e.fondoInicial)}</span></div>
-      <div class="p-row"><span>Total tarjeta (TPV)</span><span>${money(e.tarjeta)}</span></div>
-      <div class="p-row"><span>Total efectivo (sistema)</span><span>${money(e.efSistema)}</span></div>
-      <div class="p-row"><span>Total delivery (app/plataforma)</span><span>${money(e.delivery)}</span></div>
-      <div class="p-total"><span>Total ventas</span><span>${money(e.totalVentas)}</span></div>
-
-      ${(e.retiros&&e.retiros.length) ? `
-      <div class="p-section-title">Retiros</div>
-      ${e.retiros.map(it=>`<div class="p-line">${money(it.monto)} — ${esc(fieldsToLine(RETIROS_FIELDS, it))}</div>`).join('')}
-      <div class="p-total"><span>Total retiros</span><span>${money(e.totalRetiros)}</span></div>` : ''}
-
-      ${(e.cortesias&&e.cortesias.length) ? `
-      <div class="p-section-title">Cortesías</div>
-      ${e.cortesias.map(it=>`<div class="p-line">${money(it.monto)} — ${esc(fieldsToLine(CORTESIAS_FIELDS, it))}</div>`).join('')}
-      <div class="p-total"><span>Total cortesías</span><span>${money(e.totalCortesias)}</span></div>` : ''}
+      <div class="p-section-title">Arqueo de caja</div>
+      ${denomRows || '<div class="p-line">Sin conteo registrado</div>'}
+      <div class="p-total"><span>Total efectivo</span><span>${money(totalEfectivo)}</span></div>
 
       ${(e.gastos&&e.gastos.length) ? `
       <div class="p-section-title">Gastos</div>
       ${e.gastos.map(it=>`<div class="p-line">${money(it.monto)} — ${esc(fieldsToLine(GASTOS_FIELDS, it))}</div>`).join('')}
       <div class="p-total"><span>Total gastos</span><span>${money(e.totalGastos)}</span></div>` : ''}
 
-      <div class="p-section-title">Arqueo físico de efectivo</div>
-      ${denomRows || '<div class="p-line">Sin conteo registrado</div>'}
-      <div class="p-total"><span>Total contado</span><span>${money(e.totalContado)}</span></div>
+      ${(e.retiros&&e.retiros.length) ? `
+      <div class="p-section-title">Retiros</div>
+      ${e.retiros.map(it=>`<div class="p-line">${money(it.monto)} — ${esc(fieldsToLine(RETIROS_FIELDS, it))}</div>`).join('')}
+      <div class="p-total"><span>Total retiros</span><span>${money(e.totalRetiros)}</span></div>` : ''}
 
-      <div class="p-section-title">Cuadre de caja</div>
-      <div class="p-row"><span>Fondo inicial (queda en caja)</span><span>${money(e.fondoInicial)}</span></div>
-      <div class="p-row"><span>Efectivo esperado a entregar</span><span>${money(e.esperado)}</span></div>
-      <div class="p-row"><span>Efectivo contado a entregar</span><span>${money(contadoEntregarOf(e))}</span></div>
-      <div class="p-diff">Diferencia: ${e.diferencia>0?'+':''}${money(e.diferencia)} ${diffOk ? '(cuadra)' : '(revisar)'}</div>
+      <div class="p-section-title">Total recaudación</div>
+      <div class="p-diff">Total recaudación: ${money(totalRecaudacion)}</div>
 
       ${e.observaciones ? `<div class="p-section-title">Observaciones</div><div class="p-line">${esc(e.observaciones)}</div>` : ''}
 
@@ -1416,15 +1356,17 @@ function csvNum(n){ return (Number(n)||0).toFixed(2).replace('.', ','); }
 
 function exportHistorialCSV(){
   if(state.historial.length === 0){ showNotice('Sin datos', 'No hay cierres guardados para exportar.'); return; }
-  const headers = ['Fecha','Empleado','Turno','Fondo inicial','Tarjeta','Efectivo sistema','Delivery','Total ventas','Total retiros','Total cortesías','Total gastos','Efectivo esperado','Efectivo contado','Diferencia','Entregado por','Observaciones'];
+  const headers = ['Fecha','Empleado','Turno','Fondo retirado','Total efectivo','Total gastos','Total retiros','Total recaudación','Entregado por','Observaciones'];
   const ordered = state.historial.slice().sort((a,b)=> (a.savedAt||0) - (b.savedAt||0));
-  const rows = ordered.map(e=>[
-    formatFecha(e.fecha), e.empleado||'', e.turno||'',
-    csvNum(e.fondoInicial), csvNum(e.tarjeta), csvNum(e.efSistema), csvNum(e.delivery),
-    csvNum(e.totalVentas), csvNum(e.totalRetiros), csvNum(e.totalCortesias), csvNum(e.totalGastos),
-    csvNum(e.esperado), csvNum(contadoEntregarOf(e)), csvNum(e.diferencia),
-    e.firmaEmpleado||'', (e.observaciones||'').replace(/[\r\n]+/g,' ')
-  ]);
+  const rows = ordered.map(e=>{
+    const totalEfectivo = totalEfectivoOf(e);
+    const totalRecaudacion = e.totalRecaudacion ?? (totalEfectivo + (Number(e.totalGastos)||0) + (Number(e.totalRetiros)||0));
+    return [
+      formatFecha(e.fecha), e.empleado||'', e.turno||'',
+      csvNum(e.fondoInicial), csvNum(totalEfectivo), csvNum(e.totalGastos), csvNum(e.totalRetiros), csvNum(totalRecaudacion),
+      e.firmaEmpleado||'', (e.observaciones||'').replace(/[\r\n]+/g,' ')
+    ];
+  });
   const csvContent = [headers, ...rows].map(r => r.map(csvEscape).join(';')).join('\r\n');
   const filename = `historial_cierres_${new Date().toISOString().slice(0,10)}.csv`;
   downloadBlob('\uFEFF' + csvContent, filename, 'text/csv;charset=utf-8;');
