@@ -261,7 +261,8 @@ body.kb-open .app{ padding-bottom:16px; }
 .hist-item{
   background:var(--card); border:1.5px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; cursor:pointer;
 }
-.hist-top{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; }
+.hist-top{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px; gap:8px; }
+.hist-check{ pointer-events:none; width:18px; height:18px; margin-right:2px; accent-color:var(--brand-deep); }
 .hist-date{ font-weight:700; font-size:14px; }
 .hist-emp{ font-size:12px; color:var(--ink-soft); }
 .hist-nums{ display:flex; justify-content:space-between; margin-top:6px; font-family:var(--mono); font-size:12.5px; color:var(--ink-soft); }
@@ -430,7 +431,9 @@ let state = {
   historialUnlocked: false,
   historialUser: '',
   confirmModal: null,
-  saving: false
+  saving: false,
+  selectMode: false,
+  selectedPaths: new Set()
 };
 
 function emptyForm(){
@@ -1036,7 +1039,22 @@ function renderHistorial(app){
     </div>
   `;
   if(state.historial.length > 0){
-    wrap.innerHTML += `<button class="btn-danger-full" id="btn-borrar-todo" type="button">Borrar todo el historial</button>`;
+    if(!state.selectMode){
+      wrap.innerHTML += `
+        <div class="export-bar">
+          <button class="btn-export" id="btn-select-mode" type="button">Seleccionar cierres a borrar</button>
+        </div>
+        <button class="btn-danger-full" id="btn-borrar-todo" type="button">Borrar todo el historial</button>
+      `;
+    }else{
+      const n = state.selectedPaths.size;
+      wrap.innerHTML += `
+        <div class="export-bar">
+          <button class="btn-export" id="btn-select-cancel" type="button">Cancelar selección</button>
+          <button class="btn-danger-full" id="btn-borrar-sel" type="button" style="margin:0" ${n===0?'disabled':''}>Borrar seleccionados (${n})</button>
+        </div>
+      `;
+    }
   }
   if(state.historial.length === 0){
     wrap.innerHTML += `<div class="empty">Todavía no hay cierres guardados.<br>Los cierres que registren los empleados aparecerán aquí.</div>`;
@@ -1044,7 +1062,10 @@ function renderHistorial(app){
     wrap.innerHTML += state.historial.map((e,idx)=>`
       <div class="hist-item" data-idx="${idx}">
         <div class="hist-top">
-          <span class="hist-date">${formatFecha(e.fecha)}</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            ${state.selectMode ? `<input type="checkbox" class="hist-check" data-path="${esc(e.__ghPath||'')}" ${state.selectedPaths.has(e.__ghPath)?'checked':''}>` : ''}
+            <span class="hist-date">${formatFecha(e.fecha)}</span>
+          </span>
           <span class="badge ok">${money(e.totalRecaudacion ?? 0)}</span>
         </div>
         <div class="hist-emp">${esc(e.empleado||'—')} · ${esc(e.turno||'sin turno')}</div>
@@ -1057,8 +1078,15 @@ function renderHistorial(app){
   }
   app.appendChild(wrap);
   wrap.querySelectorAll('.hist-item').forEach(el=>{
-    el.onclick = async ()=>{
+    el.onclick = async (ev)=>{
       const entry = state.historial[el.dataset.idx];
+      if(state.selectMode){
+        if(!entry.__ghPath) return;
+        if(state.selectedPaths.has(entry.__ghPath)) state.selectedPaths.delete(entry.__ghPath);
+        else state.selectedPaths.add(entry.__ghPath);
+        render();
+        return;
+      }
       if(entry.fotoKey || (entry.gastos||[]).some(g=>g.fotoKey)) showToast('Cargando fotos...');
       await ensureEntryPhotos(entry);
       state.modalEntry = entry;
@@ -1069,6 +1097,12 @@ function renderHistorial(app){
   byId('btn-export-pdf').onclick = printAllHistorial;
   const btnBorrarTodo = byId('btn-borrar-todo');
   if(btnBorrarTodo) btnBorrarTodo.onclick = borrarTodoHistorial;
+  const btnSelectMode = byId('btn-select-mode');
+  if(btnSelectMode) btnSelectMode.onclick = ()=>{ state.selectMode = true; state.selectedPaths = new Set(); render(); };
+  const btnSelectCancel = byId('btn-select-cancel');
+  if(btnSelectCancel) btnSelectCancel.onclick = ()=>{ state.selectMode = false; state.selectedPaths = new Set(); render(); };
+  const btnBorrarSel = byId('btn-borrar-sel');
+  if(btnBorrarSel) btnBorrarSel.onclick = borrarSeleccionados;
   byId('btn-hist-logout').onclick = ()=>{
     state.historialUnlocked = false;
     state.historialUser = '';
@@ -1402,6 +1436,52 @@ async function ejecutarBorradoHistorial(){
     render();
   }catch(err){
     showNotice('Error', 'No se pudo borrar el historial. Inténtalo de nuevo.');
+  }
+}
+
+function borrarSeleccionados(){
+  const n = state.selectedPaths.size;
+  if(n === 0) return;
+  const seleccionados = state.historial.filter(e=> state.selectedPaths.has(e.__ghPath));
+  openConfirm({
+    title: 'Borrar cierres seleccionados',
+    message: `Vas a borrar PERMANENTEMENTE ${n} cierre${n>1?'s':''} (incluyendo sus fotos). El resto del historial se mantiene. Esta acción no se puede deshacer.`,
+    confirmLabel: 'Borrar seleccionados',
+    danger: true,
+    onConfirm: ()=> ejecutarBorradoSeleccionados(seleccionados)
+  });
+}
+
+async function ejecutarBorradoSeleccionados(entries){
+  try{
+    const items = await ghListDir(GH_DIR);
+    const shaByPath = {};
+    items.forEach(it=>{ shaByPath[it.path] = it.sha; });
+
+    for(const e of entries){
+      const jsonPath = e.__ghPath;
+      const jsonSha = shaByPath[jsonPath] || e.__ghSha;
+      if(jsonPath && jsonSha){
+        try{ await ghDeleteFile(jsonPath, jsonSha); }catch(err){}
+      }
+      if(e.fotoKey && shaByPath[e.fotoKey]){
+        try{ await ghDeleteFile(e.fotoKey, shaByPath[e.fotoKey]); }catch(err){}
+      }
+      if(e.gastos){
+        for(const g of e.gastos){
+          if(g.fotoKey && shaByPath[g.fotoKey]){
+            try{ await ghDeleteFile(g.fotoKey, shaByPath[g.fotoKey]); }catch(err){}
+          }
+        }
+      }
+    }
+    state.selectMode = false;
+    state.selectedPaths = new Set();
+    await loadHistorial();
+    showToast('Cierres seleccionados borrados');
+    render();
+  }catch(err){
+    showNotice('Error', 'No se pudieron borrar los cierres seleccionados. Inténtalo de nuevo.');
   }
 }
 
