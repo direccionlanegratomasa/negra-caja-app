@@ -402,7 +402,7 @@ const AUTORIZADORES = ['Jorge','Mirian','Yanelis','Andrea','Carlos','Maxi','Jose
 const RETIRO_PERSONAS = ['Jorge','Ruth','Carlos','Jose','Maxi'];
 const TURNOS = ['Mañana','Tarde','Noche','Turno completo'];
 const SINO = ['Sí','No'];
-const HISTORIAL_AUTORIZADOS = ['Jorge','Carlos','Maxi','Laura','Ruth'];
+const HISTORIAL_AUTORIZADOS = ['Jose','Jorge','Laura'];
 const HISTORIAL_PASSWORD = '656800';
 
 const BILLETES = [500,200,100,50,20,10,5];
@@ -1117,7 +1117,7 @@ function renderHistorialGate(app){
     <div class="card">
       <div class="card-head"><span class="card-num">i</span>Acceso restringido</div>
       <div class="card-body">
-        <div class="notice" style="margin:0 0 12px">El historial de cierres solo puede verlo Jorge, Carlos, Maxi, Laura o Ruth. Selecciona tu nombre e introduce la contraseña para continuar.</div>
+        <div class="notice" style="margin:0 0 12px">El historial de cierres solo puede verlo Jose, Jorge o Laura. Selecciona tu nombre e introduce la contraseña para continuar.</div>
         <div class="field">
           <label>¿Quién eres?</label>
           <select id="gate-select">${selectOptions(HISTORIAL_AUTORIZADOS, '', 'Selecciona tu nombre')}</select>
