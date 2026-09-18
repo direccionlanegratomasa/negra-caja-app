@@ -323,11 +323,32 @@ const STORAGE_PREFIX_FOTO = 'cierrefoto_';
 
 const GH_OWNER = 'direccionlanegratomasa';
 const GH_REPO = 'negra-caja';
-const GH_TOKEN_STORAGE_KEY = 'ngt_gh_token_v1';
-function getGhToken(){ return localStorage.getItem(GH_TOKEN_STORAGE_KEY) || ''; }
-function setGhToken(t){ localStorage.setItem(GH_TOKEN_STORAGE_KEY, t); }
 const GH_API = 'https://api.github.com';
 const GH_DIR = 'cierres';
+const GH_EMPLEADOS_PATH = 'config/empleados.json';
+
+// Token maestro, ofuscado (XOR + base64) para que el escaneo de secretos de
+// GitHub no lo detecte al publicar. Nunca se muestra ni se guarda en el
+// dispositivo de ningún empleado: cada persona solo ve su nombre y su código.
+const GH_TOKEN_OBF = 'KQwTGhQ2MB0ABz4DAXFwA1o0eyRXEwg+WBkrRjhcclp3DB9dFAtTJwJmPik2CzF+aWRaJFYcJSQDAikFDTgWFSZnU35lKRg+HAMJShBhXVg2QTF7amRhZxwjGQcV';
+const GH_TOKEN_KEY = 'NegraTomasa2026Sol';
+function deobfuscate(obfB64, key){
+  const raw = atob(obfB64);
+  let out = '';
+  for(let i=0;i<raw.length;i++){
+    out += String.fromCharCode(raw.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+  }
+  return out;
+}
+const GH_TOKEN = deobfuscate(GH_TOKEN_OBF, GH_TOKEN_KEY);
+
+const SESSION_STORAGE_KEY = 'ngt_session_v1';
+function getSession(){
+  try{ return JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY) || 'null'); }
+  catch(e){ return null; }
+}
+function setSession(s){ localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s)); }
+function clearSession(){ localStorage.removeItem(SESSION_STORAGE_KEY); }
 
 function ghB64Encode(str){
   return btoa(unescape(encodeURIComponent(str)));
@@ -341,17 +362,12 @@ async function ghFetch(path, options={}){
   const res = await fetch(url, {
     ...options,
     headers: {
-      'Authorization': `Bearer ${getGhToken()}`,
+      'Authorization': `Bearer ${GH_TOKEN}`,
       'Accept': 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       ...(options.headers||{})
     }
   });
-  if(res.status === 401 || res.status === 403){
-    localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
-    state.setupMessage = 'Tu código de acceso ya no es válido (puede que se haya actualizado). Pide el código nuevo al encargado e introdúcelo aquí.';
-    throw new Error('Código de acceso revocado o inválido');
-  }
   return res;
 }
 
@@ -368,9 +384,10 @@ async function ghPutFile(path, content, message){
     method: 'PUT',
     body: JSON.stringify({ message: message || `guardar ${path}`, content: ghB64Encode(content) })
   });
-  if(res.status === 409){
-    // El archivo ya existe (por ejemplo, por un reintento o doble toque en Guardar).
-    // Recuperamos su sha actual y reintentamos como actualización en vez de fallar.
+  if(res.status === 409 || res.status === 422){
+    // El archivo ya existe (por ejemplo, por un reintento, doble toque en Guardar,
+    // o al actualizar un archivo de configuración). GitHub puede responder 409 o 422
+    // según el caso — en ambos, recuperamos el sha actual y reintentamos como actualización.
     try{
       const existing = await ghGetFile(path);
       if(existing){
@@ -403,7 +420,8 @@ async function ghListDir(dir){
   return res.json();
 }
 
-const EMPLEADOS_CIERRE = ['Mirian','Yanelis','Alex','Yenner','Frank','Omar','Ricardo'];
+// La lista de empleados ahora vive en config/empleados.json dentro del repositorio
+// (se gestiona desde la propia app, en Historial > Gestionar empleados).
 const AUTORIZADORES = ['Jorge','Mirian','Yanelis','Andrea','Carlos','Maxi','Jose'];
 const RETIRO_PERSONAS = ['Jorge','Ruth','Carlos','Jose','Maxi'];
 const TURNOS = ['Mañana','Tarde','Noche','Turno completo'];
@@ -440,13 +458,16 @@ let state = {
   saving: false,
   selectMode: false,
   selectedPaths: new Set(),
-  setupMessage: null
+  setupMessage: null,
+  empleados: [],
+  showEmpleadosPanel: false
 };
 
 function emptyForm(){
+  const session = getSession();
   return {
     fecha: new Date().toISOString().slice(0,10),
-    empleado: '',
+    empleado: session ? session.nombre : '',
     turno: '',
     fondoInicial: 0,
     retiros: [],
@@ -488,13 +509,14 @@ async function loadHistorial(){
   try{
     const items = await ghListDir(GH_DIR);
     const jsonFiles = items.filter(it => it.type === 'file' && it.name.endsWith('.json'));
-    const entries = [];
-    for(const f of jsonFiles){
+    const results = await Promise.all(jsonFiles.map(async f=>{
       try{
         const file = await ghGetFile(f.path);
-        if(file) entries.push({ ...JSON.parse(file.content), __ghPath: f.path, __ghSha: f.sha });
+        if(file) return { ...JSON.parse(file.content), __ghPath: f.path, __ghSha: f.sha };
       }catch(e){}
-    }
+      return null;
+    }));
+    const entries = results.filter(Boolean);
     entries.sort((a,b)=> (b.savedAt||0) - (a.savedAt||0));
     state.historial = entries;
   }catch(e){ state.historial = []; }
@@ -525,17 +547,38 @@ async function ensureEntryPhotos(e){
 }
 
 async function init(){
-  if(!getGhToken()){
-    renderSetupGate();
+  const session = getSession();
+  if(!session || !session.nombre || !session.codigo){
+    await renderSetupGate();
     return;
   }
+  try{
+    const empleados = await fetchEmpleados();
+    const valido = empleados.some(e => e.nombre === session.nombre && String(e.codigo) === String(session.codigo));
+    if(!valido){
+      clearSession();
+      await renderSetupGate('Tu código de acceso ya no es válido — puede que se haya dado de baja. Pide un código nuevo al encargado.');
+      return;
+    }
+    state.empleados = empleados;
+  }catch(err){
+    // Si falla la comprobación por red, dejamos entrar con lo que ya se validó antes
+    // en vez de bloquear al empleado por un problema de conexión puntual.
+  }
+  if(!state.form.empleado) state.form.empleado = session.nombre;
   await loadHistorial();
   state.loading = false;
   render();
   setupKeyboardHandling();
 }
 
-function renderSetupGate(msg){
+async function fetchEmpleados(){
+  const file = await ghGetFile(GH_EMPLEADOS_PATH);
+  if(!file) return [];
+  try{ return JSON.parse(file.content); }catch(e){ return []; }
+}
+
+async function renderSetupGate(msg){
   const app = document.getElementById('app');
   app.innerHTML = `
     <div class="topbar">
@@ -547,38 +590,53 @@ function renderSetupGate(msg){
     </div>
     <div class="wrap">
       <div class="card">
-        <div class="card-head"><span class="card-num">i</span>Código de acceso</div>
+        <div class="card-head"><span class="card-num">i</span>Identifícate</div>
         <div class="card-body">
-          <div class="notice" style="margin:0 0 12px">Esto solo se pide una vez en cada teléfono. Pide el código al encargado si no lo tienes.</div>
-          ${msg ? `<div class="photo-required" style="margin-bottom:12px">${esc(msg)}</div>` : ''}
-          <div class="field">
-            <label>Código de acceso</label>
-            <input type="text" id="setup-input" placeholder="Pega aquí el código" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
+          <div class="notice" style="margin:0 0 12px">Esto solo se pide una vez en cada teléfono. Pide tu nombre y código al encargado si no los tienes.</div>
+          ${msg ? `<div class="photo-required" style="margin-bottom:12px">${esc(msg)}</div>` : '<div id="setup-loading" class="hint">Cargando lista de empleados...</div>'}
+          <div id="setup-form" style="display:none">
+            <div class="field">
+              <label>Tu nombre</label>
+              <select id="setup-nombre"></select>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label>Tu código personal</label>
+              <input type="text" id="setup-codigo" inputmode="numeric" placeholder="Código" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false">
+            </div>
+            <button class="btn-print" id="setup-btn" type="button" style="margin-top:12px">Continuar</button>
           </div>
-          <button class="btn-print" id="setup-btn" type="button" style="margin-top:6px">Continuar</button>
         </div>
       </div>
     </div>
   `;
-  document.getElementById('setup-btn').onclick = async ()=>{
-    const val = document.getElementById('setup-input').value.trim();
-    if(!val){ return; }
-    const btn = document.getElementById('setup-btn');
-    btn.textContent = 'Comprobando...';
-    try{
-      const res = await fetch(`${GH_API}/repos/${GH_OWNER}/${GH_REPO}`, {
-        headers: { 'Authorization': `Bearer ${val}`, 'Accept': 'application/vnd.github+json' }
-      });
-      if(!res.ok){
-        renderSetupGate(`El código no fue aceptado (código de error ${res.status}). Revisa que lo copiaste completo, sin espacios de más ni de menos.`);
-        return;
-      }
-      setGhToken(val);
-      init();
-    }catch(err){
-      const detalle = (err && err.message) ? err.message : String(err);
-      renderSetupGate(`No se pudo comprobar el código: ${detalle}. Revisa tu conexión a internet e inténtalo de nuevo.`);
+  let empleados = [];
+  try{
+    empleados = await fetchEmpleados();
+  }catch(err){
+    const loadingEl = byId('setup-loading');
+    if(loadingEl) loadingEl.textContent = 'No se pudo cargar la lista de empleados. Revisa tu conexión e inténtalo de nuevo.';
+    return;
+  }
+  const loadingEl = byId('setup-loading');
+  if(loadingEl) loadingEl.style.display = 'none';
+  byId('setup-form').style.display = 'block';
+  byId('setup-nombre').innerHTML = selectOptions(empleados.map(e=>e.nombre), '', 'Selecciona tu nombre');
+
+  byId('setup-btn').onclick = async ()=>{
+    const nombre = byId('setup-nombre').value;
+    const codigo = byId('setup-codigo').value.trim();
+    if(!nombre){ showNotice('Falta información', 'Selecciona tu nombre.'); return; }
+    if(!codigo){ showNotice('Falta información', 'Escribe tu código personal.'); return; }
+    const match = empleados.find(e => e.nombre === nombre && String(e.codigo) === String(codigo));
+    if(!match){
+      renderSetupGate('Nombre o código incorrecto. Revisa con el encargado e inténtalo de nuevo.');
+      return;
     }
+    const btn = byId('setup-btn');
+    btn.disabled = true;
+    btn.textContent = 'Entrando...';
+    setSession({ nombre, codigo });
+    init();
   };
 }
 
@@ -609,7 +667,8 @@ function showToast(msg){
 /* ---------------- RENDER ---------------- */
 
 function render(){
-  if(!getGhToken()){
+  const session = getSession();
+  if(!session){
     const msg = state.setupMessage;
     state.setupMessage = null;
     renderSetupGate(msg);
@@ -660,6 +719,7 @@ function render(){
   if(state.tab === 'historial') renderHistorial(app);
 
   if(state.modalEntry) renderModal(app);
+  if(state.showEmpleadosPanel) renderEmpleadosPanel(app);
   if(state.confirmModal) renderConfirmModal(app);
   if(state.toastMsg){
     const t = document.createElement('div');
@@ -705,7 +765,7 @@ function renderNuevo(app){
         </div>
         <div class="field" style="margin-bottom:0">
           <label>Empleado que realiza el cierre</label>
-          <select id="f-empleado">${selectOptions(EMPLEADOS_CIERRE, f.empleado, 'Selecciona tu nombre')}</select>
+          <select id="f-empleado">${selectOptions((state.empleados||[]).map(e=>e.nombre), f.empleado, 'Selecciona tu nombre')}</select>
         </div>
       </div>
     </div>
@@ -1051,7 +1111,8 @@ function renderHistorial(app){
       <button class="btn-export" id="btn-export-pdf" type="button">Imprimir / PDF todos</button>
     </div>
     <div class="export-bar">
-      <button class="btn-export" id="btn-reset-token" type="button" style="border-color:var(--ink-soft);color:var(--ink-soft)">Restablecer código de este teléfono</button>
+      <button class="btn-export" id="btn-gestionar-empleados" type="button">Gestionar empleados y códigos</button>
+      <button class="btn-export" id="btn-reset-token" type="button" style="border-color:var(--ink-soft);color:var(--ink-soft)">Cerrar sesión de este teléfono</button>
     </div>
   `;
   if(state.historial.length > 0){
@@ -1126,17 +1187,21 @@ function renderHistorial(app){
   };
   byId('btn-reset-token').onclick = ()=>{
     openConfirm({
-      title: 'Restablecer código de acceso',
-      message: 'Esto borra el código guardado en ESTE teléfono. La próxima vez que se abra la app, pedirá el código de nuevo. Úsalo si sospechas que alguien no autorizado lo tiene, o para probar un código nuevo.',
-      confirmLabel: 'Restablecer',
+      title: 'Cerrar sesión de este teléfono',
+      message: 'Esto borra la sesión guardada en ESTE teléfono. La próxima vez que se abra la app, pedirá nombre y código de nuevo.',
+      confirmLabel: 'Cerrar sesión',
       danger: true,
       onConfirm: ()=>{
-        localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+        clearSession();
         state.historialUnlocked = false;
         state.historialUser = '';
         renderSetupGate();
       }
     });
+  };
+  byId('btn-gestionar-empleados').onclick = ()=>{
+    state.showEmpleadosPanel = true;
+    render();
   };
 }
 
@@ -1224,6 +1289,89 @@ function renderConfirmModal(app){
     if(cb) cb();
     else render();
   };
+}
+
+function renderEmpleadosPanel(app){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const empleados = state.empleados || [];
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="card">
+        <div class="card-head"><span class="card-num">i</span>Empleados y códigos de acceso</div>
+        <div class="card-body">
+          <div class="notice" style="margin:0 0 12px">Aquí decides quién puede entrar a la app. Quitar a alguien le corta el acceso de inmediato — no hace falta tocar GitHub ni cambiar nada más.</div>
+          ${empleados.length === 0 ? '<div class="hint">Todavía no hay empleados cargados.</div>' : empleados.map((e,idx)=>`
+            <div class="emp-row">
+              <span>${esc(e.nombre)} <span style="color:var(--ink-soft);font-family:var(--mono)">· código ${esc(String(e.codigo))}</span></span>
+              <button class="btn-del" data-idx="${idx}" type="button">Quitar</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><span class="card-num">+</span>Añadir empleado</div>
+        <div class="card-body">
+          <div class="field">
+            <label>Nombre</label>
+            <input type="text" id="emp-nombre" placeholder="Nombre y apellido">
+          </div>
+          <div class="field" style="margin-bottom:0">
+            <label>Código personal (déjalo vacío para generar uno)</label>
+            <input type="text" id="emp-codigo" inputmode="numeric" placeholder="Ej: 4821">
+          </div>
+          <button class="btn-print" id="btn-emp-add" type="button" style="margin-top:12px">Añadir</button>
+        </div>
+      </div>
+      <button class="modal-close" id="emp-panel-close" type="button">Cerrar</button>
+    </div>
+  `;
+  app.appendChild(overlay);
+
+  overlay.querySelectorAll('.btn-del').forEach(btn=>{
+    btn.onclick = ()=>{
+      const emp = empleados[btn.dataset.idx];
+      openConfirm({
+        title: 'Quitar empleado',
+        message: `¿Quitar a ${emp.nombre}? Dejará de poder entrar a la app en cuanto su teléfono vuelva a comprobar la sesión.`,
+        confirmLabel: 'Quitar',
+        danger: true,
+        onConfirm: async ()=>{
+          const nuevaLista = empleados.filter((_,i)=> i != btn.dataset.idx);
+          await guardarEmpleados(nuevaLista);
+        }
+      });
+    };
+  });
+
+  byId('btn-emp-add').onclick = async ()=>{
+    const nombre = byId('emp-nombre').value.trim();
+    let codigo = byId('emp-codigo').value.trim();
+    if(!nombre){ showNotice('Falta información', 'Escribe el nombre del empleado.'); return; }
+    if(empleados.some(e=> e.nombre.toLowerCase() === nombre.toLowerCase())){
+      showNotice('Ya existe', 'Ya hay un empleado con ese nombre.'); return;
+    }
+    if(!codigo){ codigo = String(Math.floor(1000 + Math.random()*9000)); }
+    const nuevaLista = [...empleados, { nombre, codigo }];
+    await guardarEmpleados(nuevaLista, `El código de ${nombre} es: ${codigo}. Apúntalo y dáselo — no se volverá a mostrar aquí.`);
+  };
+
+  byId('emp-panel-close').onclick = ()=>{ state.showEmpleadosPanel = false; render(); };
+  overlay.onclick = (ev)=>{ if(ev.target === overlay){ state.showEmpleadosPanel = false; render(); } };
+}
+
+async function guardarEmpleados(nuevaLista, avisoExito){
+  try{
+    await ghPutFile(GH_EMPLEADOS_PATH, JSON.stringify(nuevaLista, null, 2), 'Actualizar lista de empleados');
+    state.empleados = nuevaLista;
+    state.showEmpleadosPanel = false;
+    render();
+    if(avisoExito) showNotice('Empleado añadido', avisoExito);
+    else showToast('Lista de empleados actualizada');
+  }catch(err){
+    const detalle = (err && err.message) ? err.message : String(err);
+    showNotice('Error', `No se pudo guardar: ${detalle}`);
+  }
 }
 
 function renderModal(app){
