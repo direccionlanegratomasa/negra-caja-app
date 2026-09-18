@@ -338,7 +338,7 @@ function ghB64Decode(str){
 
 async function ghFetch(path, options={}){
   const url = `${GH_API}/repos/${GH_OWNER}/${GH_REPO}/contents/${path}`;
-  return fetch(url, {
+  const res = await fetch(url, {
     ...options,
     headers: {
       'Authorization': `Bearer ${getGhToken()}`,
@@ -347,6 +347,12 @@ async function ghFetch(path, options={}){
       ...(options.headers||{})
     }
   });
+  if(res.status === 401 || res.status === 403){
+    localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+    state.setupMessage = 'Tu código de acceso ya no es válido (puede que se haya actualizado). Pide el código nuevo al encargado e introdúcelo aquí.';
+    throw new Error('Código de acceso revocado o inválido');
+  }
+  return res;
 }
 
 async function ghGetFile(path){
@@ -433,7 +439,8 @@ let state = {
   confirmModal: null,
   saving: false,
   selectMode: false,
-  selectedPaths: new Set()
+  selectedPaths: new Set(),
+  setupMessage: null
 };
 
 function emptyForm(){
@@ -602,6 +609,12 @@ function showToast(msg){
 /* ---------------- RENDER ---------------- */
 
 function render(){
+  if(!getGhToken()){
+    const msg = state.setupMessage;
+    state.setupMessage = null;
+    renderSetupGate(msg);
+    return;
+  }
   const app = document.getElementById('app');
   app.innerHTML = '';
 
@@ -1037,6 +1050,9 @@ function renderHistorial(app){
       <button class="btn-export" id="btn-export-csv" type="button">Exportar a Excel (CSV)</button>
       <button class="btn-export" id="btn-export-pdf" type="button">Imprimir / PDF todos</button>
     </div>
+    <div class="export-bar">
+      <button class="btn-export" id="btn-reset-token" type="button" style="border-color:var(--ink-soft);color:var(--ink-soft)">Restablecer código de este teléfono</button>
+    </div>
   `;
   if(state.historial.length > 0){
     if(!state.selectMode){
@@ -1107,6 +1123,20 @@ function renderHistorial(app){
     state.historialUnlocked = false;
     state.historialUser = '';
     render();
+  };
+  byId('btn-reset-token').onclick = ()=>{
+    openConfirm({
+      title: 'Restablecer código de acceso',
+      message: 'Esto borra el código guardado en ESTE teléfono. La próxima vez que se abra la app, pedirá el código de nuevo. Úsalo si sospechas que alguien no autorizado lo tiene, o para probar un código nuevo.',
+      confirmLabel: 'Restablecer',
+      danger: true,
+      onConfirm: ()=>{
+        localStorage.removeItem(GH_TOKEN_STORAGE_KEY);
+        state.historialUnlocked = false;
+        state.historialUser = '';
+        renderSetupGate();
+      }
+    });
   };
 }
 
