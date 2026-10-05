@@ -75,6 +75,9 @@ input[type=text]:focus{ outline:none; border-color:var(--black); background:#fff
 .btn-primary:hover:not(:disabled){ background:#000; color:#FFE45C; box-shadow:0 0 0 3px rgba(255,212,0,.55); }
 .btn-primary:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(255,212,0,.9); }
 .btn-primary:disabled{ opacity:.4; cursor:not-allowed; }
+.btn-ghost{ background:#fff; color:var(--black); }
+.btn-ghost:hover:not(:disabled){ background:var(--brand-light); box-shadow:0 0 0 3px rgba(255,212,0,.55); }
+.btn-ghost:focus-visible{ outline:none; box-shadow:0 0 0 3px rgba(255,212,0,.9); }
 .btn-link{ background:none; border:none; color:var(--black); text-decoration:underline; cursor:pointer; font:inherit; padding:0; font-weight:700; }
 
 .alert{ border-radius:10px; padding:11px 14px; font-size:14px; margin-top:10px; border:1.5px solid; white-space:pre-line; }
@@ -171,6 +174,7 @@ footer div:first-of-type{ font-weight:700; color:var(--black); letter-spacing:.3
 
   <div class="actions" style="margin-top:0;margin-bottom:18px">
     <button class="btn btn-primary" id="btnProcesar" disabled>Procesar</button>
+    <button class="btn btn-ghost" id="btnReiniciar" type="button">Reiniciar</button>
     <span class="small" id="estadoProceso"></span>
   </div>
   <div id="msgProceso"></div>
@@ -184,6 +188,7 @@ footer div:first-of-type{ font-weight:700; color:var(--black); letter-spacing:.3
       <div class="tablewrap"><table class="prev" id="tabla"></table></div>
       <div class="actions">
         <button class="btn btn-primary" id="btnDescargar">Descargar Excel</button>
+        <button class="btn btn-ghost" id="btnNueva" type="button">Nueva importación</button>
         <span class="small" id="nombreSalida"></span>
       </div>
     </div>
@@ -192,14 +197,14 @@ footer div:first-of-type{ font-weight:700; color:var(--black); letter-spacing:.3
   <details>
     <summary>Cómo se rellena la hoja</summary>
     <div class="inner">
-      <p class="small">Se crea un Excel con una sola hoja, <strong>NOLDIAN</strong>, con los mismos títulos y formato que la hoja actual, y una fila por factura, en el mismo orden que el archivo de Ágora, <strong>salvo los tickets a 0,00 €, que no se incluyen</strong>.</p>
+      <p class="small">Se crea un Excel con una sola hoja, <strong>NOLDIAN</strong>, con los mismos títulos y formato que la hoja actual, y una fila por factura, <strong>ordenadas por fecha</strong> (las del mismo día conservan el orden del archivo de Ágora), <strong>salvo los tickets a 0,00 €, que no se incluyen</strong>. El número correlativo se asigna después de ordenar.</p>
       <table class="map">
         <tr><th>Columna</th><th>Contenido</th></tr>
         <tr><td>TIPO</td><td>VNAC.</td></tr>
         <tr><td>REFERENCIA · VACIO · NUMERO REAL</td><td>Vacías.</td></tr>
         <tr><td>Descripcion</td><td>Tipo Doc. + Número + Forma de Pago + número correlativo, separados por dos espacios. Ej.: <span style="font-family:var(--mono)">Fra. Simp.&nbsp;&nbsp;T-177643&nbsp;&nbsp;TARJETA AGORA&nbsp;&nbsp;22762</span></td></tr>
         <tr><td>Fecha</td><td>Fecha de la factura en Ágora.</td></tr>
-        <tr><td>Clientes · NIF</td><td>Cliente y CIF/NIF de Ágora (vacíos en los tickets simplificados).</td></tr>
+        <tr><td>Clientes · NIF</td><td>Vacías (no se importan).</td></tr>
         <tr><td>Base</td><td>Base de Ágora.</td></tr>
         <tr><td>%IVA1</td><td>10.</td></tr>
         <tr><td>SERIE</td><td>La serie que indiques.</td></tr>
@@ -328,7 +333,7 @@ function comprobarBase(){
 /* ================= LECTURA DE FACTURAS (HTML de Ágora) ================= */
 var COLS_FACTURAS = {
   fecha: 'fecha', numero: 'numero', base: 'base', total: 'total',
-  tipo: 'tipo doc', pago: 'forma de pago', cliente: 'cliente', nif: 'cif/nif'
+  tipo: 'tipo doc', pago: 'forma de pago'
 };
 function leerFacturas(texto){
   if (!/<table/i.test(texto)){
@@ -362,8 +367,6 @@ function leerFacturas(texto){
   }
 
   var filas = [], errores = [], avisos = [], totalAgora = null;
-  if (idx.cliente < 0) avisos.push('El archivo no tiene columna «Cliente»: quedará vacía.');
-  if (idx.nif < 0) avisos.push('El archivo no tiene columna «CIF/NIF»: quedará vacía.');
   if (texto.indexOf('\uFFFD') >= 0) avisos.push('Hay caracteres ilegibles (�) en el archivo: puede que se haya guardado con otra codificación y algún nombre salga mal.');
 
   for (var r = iCab + 1; r < trs.length; r++){
@@ -387,7 +390,7 @@ function leerFacturas(texto){
     if (base === null) errores.push('Factura nº ' + linea + ' (' + numero + '): base no válida «' + baseTxt + '».');
     filas.push({
       numero: numero, fecha: fs, fechaTxt: fecha, baseCents: base, totalCents: total,
-      tipo: g('tipo'), pago: g('pago'), cliente: g('cliente'), nif: g('nif'),
+      tipo: g('tipo'), pago: g('pago'),
       cero: base === 0 && (total === null || total === 0)
     });
   }
@@ -440,8 +443,7 @@ function construirHoja(filas, serie){
         case 'tipo':    x = celdaTxt(L, r, CONFIG.TIPO, null); break;
         case 'desc':    x = celdaTxt(L, r, f.desc, null); break;
         case 'fecha':   x = celdaNum(L, r, String(f.fecha), ESTILO.fecha); break;
-        case 'cliente': x = f.cliente ? celdaTxt(L, r, f.cliente, null) : ''; break;
-        case 'nif':     x = f.nif ? celdaTxt(L, r, f.nif, null) : ''; break;
+        case 'cliente': case 'nif': x = ''; break;   // Clientes y NIF no se importan: quedan vacías
         case 'base':    x = celdaNum(L, r, centsToStr(f.baseCents), null); break;
         case 'iva1':    x = celdaNum(L, r, CONFIG.IVA1, null); break;
         case 'serie':   x = serieEsNum ? celdaNum(L, r, serie, null) : celdaTxt(L, r, serie, null); break;
@@ -499,7 +501,7 @@ async function generarLibro(sheetXml, onProgress){
 }
 
 /* ================= INTERFAZ ================= */
-var state = { facturas: null, salida: null };
+var state = { facturas: null, salida: null, procesando: false };
 var CLAVE_ULTIMO = 'importacionVentas.ultimaDescarga';
 
 function msg(boxId, tipo, html){
@@ -581,17 +583,20 @@ async function procesar(){
   var datos = validarDatos();
   if (datos.error){ msg('msgProceso', 'err', datos.error); return; }
   var btn = $('btnProcesar');
-  btn.disabled = true;
+  btn.disabled = true; state.procesando = true;
   btn.innerHTML = '<span class="spin"></span>Procesando…';
   try {
     comprobarBase();
     var f = state.facturas;
-    var sel = f.filas.filter(function(x){ return !x.cero; });  // los tickets a 0,00 € nunca se incluyen
+    var sel = f.filas.filter(function(x){ return !x.cero; })          // los tickets a 0,00 € nunca se incluyen
+      .map(function(x, i){ return { x: x, i: i }; })
+      .sort(function(a, b){ return (a.x.fecha - b.x.fecha) || (a.i - b.i); })   // por fecha; mismo día = orden de Ágora
+      .map(function(o){ return o.x; });
     if (!sel.length) throw new Error('No queda ninguna factura para importar.');
     var filas = sel.map(function(x, i){
       var n = datos.inicio + i;
       return {
-        numero: x.numero, tipo: x.tipo, pago: x.pago, cliente: x.cliente, nif: x.nif,
+        numero: x.numero, tipo: x.tipo, pago: x.pago,
         fecha: x.fecha, baseCents: x.baseCents, n: n,
         desc: [x.tipo, x.numero, x.pago, String(n)].join(CONFIG.SEPARADOR)
       };
@@ -607,12 +612,13 @@ async function procesar(){
     $('estadoProceso').textContent = '';
 
     var nombreSalida = ('IMPORTACION_DE_VENTAS_' + CONFIG.HOJA + '_' + datos.serie.replace(/[^A-Za-z0-9_.-]+/g, '_')).replace(/_+/g, '_') + '.xlsx';
-    state.salida = { blob: blob, nombre: nombreSalida, serie: datos.serie, ultimo: filas[filas.length - 1].n };
+    state.salida = { blob: blob, nombre: nombreSalida, serie: datos.serie, ultimo: filas[filas.length - 1].n, descargado: false };
     mostrarResultado(f, filas, datos, hoja);
   } catch (e) {
     $('estadoProceso').textContent = '';
     msg('msgProceso', 'err', textSafe(e.message));
   } finally {
+    state.procesando = false;
     btn.innerHTML = 'Procesar';
     actualizarBoton();
   }
@@ -636,22 +642,23 @@ function mostrarResultado(f, filas, datos, hoja){
 
   var av = $('avisos'); av.innerHTML = '';
   if (coincide === false) av.appendChild(el('div', 'alert err', '<strong>La suma de bases no coincide con el total de Ágora</strong> (' + fmtEur(f.totalAgora.baseCents) + '). Revisa el archivo antes de usarlo.'));
+  av.appendChild(el('div', 'alert info', 'Filas <strong>ordenadas por fecha</strong> (' + fmtFechaSerial(filas[0].fecha) + ' → ' + fmtFechaSerial(filas[filas.length - 1].fecha) + '); las del mismo día conservan el orden de Ágora. Clientes y NIF no se importan.'));
   if (f.nCeros) av.appendChild(el('div', 'alert info', 'Se han omitido <strong>' + fmtN(f.nCeros) + '</strong> ' + plural(f.nCeros, 'ticket', 'tickets') + ' a 0,00 €: no se incluyen en la hoja, así que la numeración correlativa no los cuenta.'));
 
   var t = $('tabla'); t.innerHTML = '';
-  var head = ['Fila', 'TIPO', 'Descripcion', 'Fecha', 'Clientes', 'NIF', 'Base', '%IVA1', 'SERIE'];
+  var head = ['Fila', 'TIPO', 'Descripcion', 'Fecha', 'Base', '%IVA1', 'SERIE'];
   var thead = el('thead', null, '<tr>' + head.map(function(h){ return '<th>' + h + '</th>'; }).join('') + '</tr>');
   var tbody = el('tbody');
   function fila(i){
     var x = filas[i];
     return '<tr><td class="num">' + (i + 2) + '</td><td>' + textSafe(CONFIG.TIPO) + '</td><td class="pre">' + textSafe(x.desc) + '</td><td>' + fmtFechaSerial(x.fecha) +
-      '</td><td>' + textSafe(x.cliente) + '</td><td>' + textSafe(x.nif) + '</td><td class="num">' + (x.baseCents / 100).toFixed(2).replace('.', ',') +
+      '</td><td class="num">' + (x.baseCents / 100).toFixed(2).replace('.', ',') +
       '</td><td class="num">' + textSafe(CONFIG.IVA1) + '</td><td>' + textSafe(datos.serie) + '</td></tr>';
   }
   var html = '', nPrev = Math.min(8, filas.length);
   for (var i = 0; i < nPrev; i++) html += fila(i);
   if (filas.length > nPrev + 2){
-    html += '<tr class="gap"><td colspan="9">… ' + fmtN(filas.length - nPrev - 2) + ' filas más …</td></tr>';
+    html += '<tr class="gap"><td colspan="7">… ' + fmtN(filas.length - nPrev - 2) + ' filas más …</td></tr>';
     html += fila(filas.length - 2) + fila(filas.length - 1);
   } else {
     for (var j = nPrev; j < filas.length; j++) html += fila(j);
@@ -672,7 +679,34 @@ function descargar(){
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
   guardarUltimo(state.salida.serie, state.salida.ultimo);
+  state.salida.descargado = true;
+  $('nombreSalida').innerHTML = '✓ Descargado. Cuando quieras empezar otra, pulsa <strong>Nueva importación</strong>.';
   mostrarPista();
+}
+
+/* Reinicio: deja la página lista para la siguiente importación */
+function reiniciar(confirmado){
+  if (state.procesando) return;
+  if (!confirmado && state.salida && !state.salida.descargado){
+    var box = $('msgProceso'); box.innerHTML = '';
+    var a = el('div', 'alert warn', 'Aún no has descargado el Excel de este resultado. ¿Reiniciar igualmente?' +
+      '<div class="actions" style="margin-top:10px"><button type="button" class="btn btn-ghost" id="rSi">Sí, reiniciar</button>' +
+      '<button type="button" class="btn btn-ghost" id="rNo">Cancelar</button></div>');
+    box.appendChild(a);
+    $('rSi').addEventListener('click', function(){ reiniciar(true); });
+    $('rNo').addEventListener('click', function(){ box.innerHTML = ''; });
+    a.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  state.facturas = null; state.salida = null;
+  $('fileFacturas').value = '';          // así se puede volver a elegir el mismo archivo
+  setDrop(null, '', 'Arrastra aquí el archivo o haz clic');
+  msg('msgFacturas', 'info', ''); msg('msgProceso', 'info', '');
+  $('serie').value = ''; $('inicio').value = '';
+  $('estadoProceso').textContent = ''; $('nombreSalida').textContent = '';
+  $('cardResultado').classList.add('hidden');
+  actualizarBoton(); mostrarPista();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* eventos */
@@ -692,6 +726,8 @@ function descargar(){
 ['serie', 'inicio'].forEach(function(id){ $(id).addEventListener('input', limpiarResultado); });
 $('btnProcesar').addEventListener('click', procesar);
 $('btnDescargar').addEventListener('click', descargar);
+$('btnReiniciar').addEventListener('click', function(){ reiniciar(false); });
+$('btnNueva').addEventListener('click', function(){ reiniciar(false); });
 mostrarPista();
 
 // expuesto solo para pruebas automáticas
