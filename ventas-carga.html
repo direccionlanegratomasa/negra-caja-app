@@ -540,6 +540,32 @@ function numEs(s){                // "1.234,50" -> 1234.5 ; null si no es un nú
   return parseFloat(t.replace(/\./g, '').replace(',', '.'));
 }
 function r2(x){ return Math.round(x * 100) / 100; }
+/* Algunos programas escriben el XML con prefijos (<x:sheet>, <x:c>…): se quitan para leerlo igual */
+function sinPrefijo(x){ return String(x).replace(/<(\/?)[A-Za-z][\w.-]*:([A-Za-z][\w.-]*)/g, '<$1$2'); }
+function ridDe(attrs){ var m = /\s(?:[\w-]+:)?id="([^"]*)"/.exec(' ' + attrs); return m ? m[1] : null; }
+/* Número en formato español («1.234,50») o inglés («1,944.80 €»); null si no es un número */
+function numFlex(s){
+  var t = String(s).replace(/[\s\u00a0€]/g, '');
+  if (/^-?\d+$/.test(t)) return parseInt(t, 10);
+  if (!/^-?[\d.,]+$/.test(t) || !/\d/.test(t)) return null;
+  var pc = t.lastIndexOf(','), pp = t.lastIndexOf('.'), dec = '';
+  if (pc >= 0 && pp >= 0) dec = pc > pp ? ',' : '.';
+  else if (pc >= 0 || pp >= 0){ var sep = pc >= 0 ? ',' : '.', veces = t.split(sep).length - 1, resto = t.slice(t.lastIndexOf(sep) + 1); dec = (veces === 1 && resto.length !== 3) ? sep : ''; }   // 3 cifras tras un único separador = miles
+  var ent = dec ? t.slice(0, t.lastIndexOf(dec)) : t, frac = dec ? t.slice(t.lastIndexOf(dec) + 1) : '';
+  ent = ent.replace(/[.,]/g, '');
+  if (!/^-?\d+$/.test(ent) || (frac && !/^\d+$/.test(frac))) return null;
+  return parseFloat(ent + (frac ? '.' + frac : ''));
+}
+function isoFecha(y, mo, d){ var iso = y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2); return T.esIso(iso) ? iso : ''; }
+function serialAFecha(n){ if (typeof n !== 'number' || n < 36526 || n > 73050) return ''; return new Date(Date.UTC(1899, 11, 30) + Math.floor(n) * 86400000).toISOString().slice(0, 10); }
+function fechaDeTexto(t){ var m; t = String(t); if ((m = /(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/.exec(t))) return isoFecha(+m[1], +m[2], +m[3]); if ((m = /(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(t))) return isoFecha(+m[3], +m[2], +m[1]); return ''; }
+/* ¿a lo sumo una letra de diferencia (cambiada, sobrante, que falta o dos seguidas intercambiadas)? */
+function cerca1(a, b){
+  if (a === b) return true; var la = a.length, lb = b.length; if (Math.abs(la - lb) > 1) return false;
+  var i = 0; while (i < la && i < lb && a.charAt(i) === b.charAt(i)) i++;
+  if (la === lb) return a.slice(i + 1) === b.slice(i + 1) || (a.charAt(i) === b.charAt(i + 1) && a.charAt(i + 1) === b.charAt(i) && a.slice(i + 2) === b.slice(i + 2));
+  return la > lb ? a.slice(i + 1) === b.slice(i) : b.slice(i + 1) === a.slice(i);
+}
 
 /* Rutas del paquete .xlsx que hay que leer (el resto no hace falta) */
 function rutasNecesarias(nombre){ return /^(xl\/workbook\.xml|xl\/_rels\/workbook\.xml\.rels|xl\/sharedStrings\.xml|xl\/worksheets\/[^\/]+\.xml|docProps\/core\.xml)$/.test(nombre); }
@@ -547,19 +573,27 @@ function rutasNecesarias(nombre){ return /^(xl\/workbook\.xml|xl\/_rels\/workboo
 /* f: { 'ruta dentro del xlsx': 'texto XML' } → cuadrícula de celdas de la hoja de ventas */
 function leerLibro(f){
   var wb = f['xl/workbook.xml'], rel = f['xl/_rels/workbook.xml.rels'];
-  if (!wb || !rel) throw new Error('El archivo no parece un libro de Excel (.xlsx).');
+  if (!wb) throw new Error('El archivo no parece un libro de Excel (.xlsx).');
+  wb = sinPrefijo(wb); rel = rel ? sinPrefijo(rel) : '';
   var hojas = [], m, re = /<sheet\b([^>]*?)\/?>/g;
-  while ((m = re.exec(wb))) hojas.push({ nombre: desescapar(atributo(m[1], 'name') || ''), rid: atributo(m[1], 'r:id') });
-  if (!hojas.length) throw new Error('El Excel no tiene hojas.');
-  var hoja = hojas.filter(function(h){ return /ventas|producto/i.test(h.nombre); })[0] || hojas[0];
-  var rels = [], rr = /<Relationship\b([^>]*?)\/?>/g;
-  while ((m = rr.exec(rel))) rels.push({ id: atributo(m[1], 'Id'), target: atributo(m[1], 'Target') });
-  var r = rels.filter(function(x){ return x.id === hoja.rid; })[0];
-  if (!r) throw new Error('No se encuentra el contenido de la hoja «' + hoja.nombre + '».');
-  var ruta = r.target.charAt(0) === '/' ? r.target.slice(1) : 'xl/' + r.target, xml = f[ruta];
-  if (!xml) throw new Error('Falta ' + ruta + ' dentro del Excel.');
+  while ((m = re.exec(wb))) hojas.push({ nombre: desescapar(atributo(m[1], 'name') || ''), rid: ridDe(m[1]), pos: hojas.length + 1 });
+  var ruta = null, nombreHoja = '';
+  if (hojas.length){
+    var hoja = hojas.filter(function(h){ return /ventas|producto/i.test(h.nombre); })[0] || hojas[0];
+    var rels = [], rr = /<Relationship\b([^>]*?)\/?>/g;
+    while ((m = rr.exec(rel))) rels.push({ id: atributo(m[1], 'Id'), target: atributo(m[1], 'Target') });
+    var r = rels.filter(function(x){ return x.id === hoja.rid; })[0];
+    ruta = r ? (r.target.charAt(0) === '/' ? r.target.slice(1) : 'xl/' + r.target.replace(/^\.\//, '')) : 'xl/worksheets/sheet' + hoja.pos + '.xml';
+    nombreHoja = hoja.nombre;
+  }
+  if (!ruta || !f[ruta]){          // si el libro no declara bien sus hojas, se usa la primera hoja que haya
+    var ks = Object.keys(f).filter(function(k){ return /^xl\/worksheets\/[^\/]+\.xml$/.test(k); }).sort();
+    if (!ks.length) throw new Error(hojas.length ? 'Falta el contenido de la hoja dentro del Excel.' : 'El Excel no tiene hojas.');
+    ruta = ks[0]; nombreHoja = nombreHoja || '(primera hoja)';
+  }
+  var xml = sinPrefijo(f[ruta]);
   var sst = [], sx = f['xl/sharedStrings.xml'];
-  if (sx){ var mi, ri = /<si\b[^>]*>([\s\S]*?)<\/si>/g; while ((mi = ri.exec(sx))) sst.push(limpiarTxt(textosDe(mi[1]))); }
+  if (sx){ sx = sinPrefijo(sx); var mi, ri = /<si\b[^>]*>([\s\S]*?)<\/si>/g; while ((mi = ri.exec(sx))) sst.push(limpiarTxt(textosDe(mi[1]))); }
   var celdas = {}, maxF = 0, maxC = 0, rc = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
   while ((m = rc.exec(xml))){
     var ref = atributo(m[1], 'r'), t = atributo(m[1], 't'), inner = m[2] || '', p = ref && /^([A-Z]+)(\d+)$/.exec(ref);
@@ -572,20 +606,30 @@ function leerLibro(f){
   }
   var exportado = null, core = f['docProps/core.xml'];
   if (core){ var mc = /<dcterms:created[^>]*>(\d{4}-\d{2}-\d{2})/.exec(core); if (mc) exportado = mc[1]; }
-  return { celdas: celdas, maxF: maxF, maxC: maxC, exportado: exportado, hoja: hoja.nombre };
+  return { celdas: celdas, maxF: maxF, maxC: maxC, exportado: exportado, hoja: nombreHoja };
 }
 
 /* Informe «Ventas por Productos por Centro de Venta»: centros, productos (uds. y ventas) y fila Total */
 function leerVentas(h){
   var get = function(f, c){ var v = h.celdas[f + ':' + c]; return v === undefined ? null : v; };
   var txt = function(f, c){ var v = get(f, c); return v === null ? '' : String(v); };
-  var sub = 0, pares = [], f, c;
-  for (f = 1; f <= Math.min(h.maxF, 15) && !sub; f++){
+  var sub = 0, pares = [], etiquetas = null, f, c;
+  for (f = 1; f <= Math.min(h.maxF, 15) && !sub; f++){          // formato A: una fila de centros y debajo «Cant.» / «Ventas»
     for (c = 1; c < h.maxC; c++) if (/^cant/i.test(txt(f, c)) && /^ventas?/i.test(txt(f, c + 1))) pares.push(c);
     if (pares.length) sub = f;
   }
+  for (f = 1; f <= Math.min(h.maxF, 25) && !sub; f++){          // formatos B y C: una sola fila «Producto | Barra Cant. | Barra Ventas | Puerta Cant. | …»
+    if (!/^producto/i.test(txt(f, 1))) continue;
+    var ps = [], et = [];
+    for (c = 2; c < h.maxC; c++){
+      var a1 = /^(.*?)\s*cant(?:idad)?\.?$/i.exec(txt(f, c)), b1 = /^(.*?)\s*ventas?\b/i.exec(txt(f, c + 1));
+      if (a1 && b1 && a1[1].trim() && limpiarTxt(a1[1]).toLowerCase() === limpiarTxt(b1[1]).toLowerCase()){ ps.push(c); et.push(limpiarTxt(a1[1])); c++; }
+    }
+    if (ps.length){ sub = f; pares = ps; etiquetas = et; }
+  }
   if (!sub) throw new Error('No encuentro las columnas «Cant.» y «Ventas» de cada centro. ¿Es el informe «Ventas por Productos por Centro de Venta» de Ágora?');
   var centros = pares.map(function(col, i){
+    if (etiquetas) return T.nombreCentro(etiquetas[i]);
     var cc = col, lab = ''; while (cc >= 1 && sub > 1 && !(lab = txt(sub - 1, cc))) cc--;
     return T.nombreCentro(lab || ('Centro ' + (i + 1)));
   });
@@ -593,7 +637,7 @@ function leerVentas(h){
   var num = function(f, c){
     var v = get(f, c); if (v === null) return 0;
     if (typeof v === 'number') return v;
-    var n = numEs(v); if (n === null){ errores.push('Fila ' + f + ': «' + v + '» no es un número.'); return 0; } return n;
+    var n = numFlex(v); if (n === null){ errores.push('Fila ' + f + ': «' + v + '» no es un número.'); return 0; } return n;
   };
   for (f = sub + 1; f <= h.maxF; f++){
     var nombre = limpiarTxt(txt(f, 1));
@@ -614,26 +658,54 @@ function leerVentas(h){
     if (Math.abs(suma[i].c / 100 - t.c) > 0.05) difs.push(centros[i] + ': ventas ' + T.fmtEur(suma[i].c) + ' en las filas frente a ' + T.fmtEur(Math.round(t.c * 100)) + ' en la fila Total.');
   });
   else avisos.push('El archivo no trae fila «Total»: no se puede comprobar que las cifras cuadren.');
-  return { centros: centros, filas: filas, suma: suma, total: total, difs: difs, avisos: avisos };
+  return { centros: centros, filas: filas, suma: suma, total: total, difs: difs, avisos: avisos, fechaContenido: fechaDeContenido(h), formato: etiquetas ? 'B/C' : 'A' };
+}
+
+/* Fecha escrita DENTRO del informe ("Desde 28/08/2026", título "Ventas 05-01-2026"). Vacío si el informe no la trae. */
+function fechaDeContenido(h){
+  var f, c, v, w, k, r;
+  for (f = 1; f <= Math.min(h.maxF, 15); f++) for (c = 1; c <= h.maxC; c++){
+    v = h.celdas[f + ':' + c]; if (typeof v !== 'string' || !/^desde\b/i.test(v.trim())) continue;
+    if ((r = fechaDeTexto(v))) return r;
+    for (k = c + 1; k <= Math.min(c + 3, h.maxC); k++){ w = h.celdas[f + ':' + k]; if (w === null || w === undefined) continue; r = typeof w === 'number' ? serialAFecha(w) : fechaDeTexto(w); if (r) return r; }
+  }
+  for (f = 1; f <= Math.min(h.maxF, 3); f++) for (c = 1; c <= Math.min(h.maxC, 4); c++){ v = h.celdas[f + ':' + c]; if (typeof v === 'string' && /^ventas\b/i.test(v.trim()) && (r = fechaDeTexto(v))) return r; }
+  return '';
 }
 
 /* Fecha: del nombre del archivo ("01 DE ENERO", "20 DESEPTIEMBRE", "2026-01-05", "05-01-2026").
    Sin año, se deduce con la fecha de exportación (o, si no hay, con hoy). */
-function fechaDeNombre(nombre, exportado, hoy){
+function fechaDeNombre(nombre, ref0, hoy){
   var s = String(nombre).replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(), m;
-  var ok = function(y, mo, d){ var iso = y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2); return T.esIso(iso) ? iso : ''; };
-  if ((m = /(\d{4})[-.\/ ](\d{1,2})[-.\/ ](\d{1,2})/.exec(s))) return ok(+m[1], +m[2], +m[3]);
-  if ((m = /(\d{1,2})[-.\/ ](\d{1,2})[-.\/ ](\d{4})/.exec(s))) return ok(+m[3], +m[2], +m[1]);
-  var meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  if ((m = /(\d{4})[-.\/ ](\d{1,2})[-.\/ ](\d{1,2})/.exec(s))) return isoFecha(+m[1], +m[2], +m[3]);
+  if ((m = /(\d{1,2})[-.\/ ](\d{1,2})[-.\/ ](\d{4})/.exec(s))) return isoFecha(+m[3], +m[2], +m[1]);
+  var meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'], mo = 0, d = 0, anio = 0;
   if ((m = /(\d{1,2})\s*(?:de\s*)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\s*(?:de\s*)?(\d{4}))?/.exec(s))){
-    var mo = meses.indexOf(m[2] === 'setiembre' ? 'septiembre' : m[2]) + 1, d = +m[1];
-    if (m[3]) return ok(+m[3], mo, d);
-    var ref = exportado || hoy, y = +ref.slice(0, 4), cand = ok(y, mo, d);
-    if (cand && cand > ref) cand = ok(y - 1, mo, d);
-    return cand;
+    mo = meses.indexOf(m[2] === 'setiembre' ? 'septiembre' : m[2]) + 1; d = +m[1]; anio = m[3] ? +m[3] : 0;
+  } else {                          // mes mal escrito («AGSOTO», «SEPTIMBRE»): vale si solo se diferencia en una letra de uno de los meses
+    var rx = /(\d{1,2})\s*(?:de\s*)?([a-z]{4,12})(?:\s*(?:de\s*)?(\d{4}))?/g, mm;
+    while (!mo && (mm = rx.exec(s))){ var cercanos = meses.concat(['setiembre']).filter(function(n){ return cerca1(mm[2], n); }); if (cercanos.length === 1){ mo = meses.indexOf(cercanos[0] === 'setiembre' ? 'septiembre' : cercanos[0]) + 1; d = +mm[1]; anio = mm[3] ? +mm[3] : 0; } }
   }
-  return '';
+  if (!mo) return '';
+  if (anio) return isoFecha(anio, mo, d);
+  // Sin año en el nombre: el del archivo más reciente que no sea anterior a esa fecha (el informe de un día se exporta ese día o los siguientes)
+  var ref = ref0 || hoy, y = +ref.slice(0, 4), cand = isoFecha(y, mo, d);
+  if (cand && cand > T.sumarDias(ref, 2)) cand = isoFecha(y - 1, mo, d);
+  if (cand && hoy && cand > T.sumarDias(hoy, 1)) cand = isoFecha(y - 1, mo, d);
+  return cand;
 }
+/* La mayor de las fechas que sirven de pista (modificación del archivo en Drive, fecha interna del Excel) */
+function refAnio(a, b){ return [a, b].filter(function(x){ return /^\d{4}-\d{2}-\d{2}$/.test(x || ''); }).sort().pop() || null; }
+/* Fecha final del día: la del contenido manda; si el nombre dice otro día, hay conflicto y se avisa */
+function resolverFecha(nombre, ref, hoy, fechaContenido){
+  var n = fechaDeNombre(nombre, ref, hoy);
+  if (fechaContenido){
+    var conflicto = !!n && n.slice(5) !== fechaContenido.slice(5);
+    return { fecha: fechaContenido, conflicto: conflicto, aviso: conflicto ? 'El nombre del archivo dice el ' + n.slice(8) + '/' + n.slice(5, 7) + ' pero el contenido del informe dice el ' + fechaContenido.slice(8) + '/' + fechaContenido.slice(5, 7) + '.' : '' };
+  }
+  return { fecha: n, conflicto: false, aviso: '' };
+}
+
 
 /* ---------- Clasificación sugerida ---------- */
 var STOP = { CON: 1, SIN: 1, DEL: 1, LAS: 1, LOS: 1, UNA: 1, UNIDADES: 1, UD: 1, COPA: 1, CERVEZA: 1, CERVEZAS: 1, REFRESCO: 1, REFRESCOS: 1, CENA: 1, PASE: 1 };   // palabras demasiado genéricas para comparar
@@ -676,7 +748,7 @@ function construirDia(item, archivo, cargadoIso){
     var a = [rw.n]; rw.v.forEach(function(x){ a.push(r2(x.u), r2(x.c)); }); return a; }) };
 }
 
-return { atributo: atributo, desescapar: desescapar, numEs: numEs, r2: r2, rutasNecesarias: rutasNecesarias, leerLibro: leerLibro, leerVentas: leerVentas, fechaDeNombre: fechaDeNombre,
+return { atributo: atributo, desescapar: desescapar, numEs: numEs, r2: r2, rutasNecesarias: rutasNecesarias, leerLibro: leerLibro, leerVentas: leerVentas, fechaDeNombre: fechaDeNombre, fechaDeContenido: fechaDeContenido, refAnio: refAnio, resolverFecha: resolverFecha, numFlex: numFlex, cerca1: cerca1,
          sugerir: sugerir, proveedoresDe: proveedoresDe, tipoEntrada: tipoEntrada, construirDia: construirDia, limpiarTxt: limpiarTxt };
 })(TOM);
 if (typeof module !== 'undefined' && module.exports) module.exports = ING;
@@ -764,7 +836,8 @@ async function procesarArchivos(files){
       if (!/\.xlsx$/i.test(f.name)) throw new Error('Tiene que ser un Excel .xlsx (no .xls ni otros formatos).');
       it.buffer = await f.arrayBuffer();
       var h = await parseExcel(it.buffer), v = leerVentas(h, f.name);
-      it.exportado = h.exportado; it.fecha = fechaDeNombre(f.name, h.exportado); it.fechaAuto = !!it.fecha;
+      it.exportado = h.exportado; var mod = f.lastModified ? new Date(f.lastModified).toISOString().slice(0, 10) : null, rf = ING.resolverFecha(f.name, ING.refAnio(mod, h.exportado), hoyIso(), v.fechaContenido);
+      it.fecha = rf.fecha; it.fechaAuto = !!it.fecha; if (rf.aviso) v.avisos.push(rf.aviso + ' Se ha puesto la fecha del contenido.');
       it.centros = v.centros; it.filas = v.filas; it.suma = v.suma; it.total = v.total; it.difs = v.difs; it.avisos = v.avisos;
     } catch (e){ it.error = e && e.message ? e.message : String(e); }
     S.items.push(it);
