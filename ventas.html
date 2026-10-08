@@ -277,6 +277,15 @@ button{ cursor:pointer; }
 .filas.prov .sub small{ color:var(--suave); }
 .estadisticas em.vd{ font-weight:700; } .estadisticas em.vd.sube{ color:var(--sube); } .estadisticas em.vd.baja{ color:var(--baja); }
 @media (max-width:420px){ .tab{ font-size:14px; padding:14px 4px 12px; } }
+@media (max-width:400px){ .tab{ font-size:13px; padding:14px 3px 12px; } }
+
+/* ---------- Servicio ---------- */
+.estadisticas em + em{ display:block; }
+.lista-dias .nota{ display:block; font-size:12.5px; font-weight:400; color:var(--suave); }
+.lista-dias li button:disabled{ cursor:default; background:none; }
+.lista-dias li button:disabled:hover{ background:none; }
+.hechos .aviso-txt{ color:var(--baja); font-weight:500; }
+.nw{ white-space:nowrap; }
 
 
 </style>
@@ -522,6 +531,68 @@ function mediaPorDiaSemana(serie){
   serie.forEach(function(s){ if (s.tiene){ var w = acc[diaSemana(s.fecha)]; w.n++; w.c += s.c; w.u += s.u; } });
   return acc.map(function(w, i){ return { dia: DIAS_L[i], corto: DIAS_C[i], n: w.n, c: w.n ? w.c / w.n : 0, u: w.n ? w.u / w.n : 0 }; });
 }
+
+/* ============================================================
+   SERVICIO: comensales (comidas y cenas) y última llamada, de los datos de operaciones.
+   Regla: si una fecha tiene varios registros, vale el ÚLTIMO de la lista.
+   ============================================================ */
+/* Minutos de la hora «HH:MM». La madrugada (00:00–05:59) cuenta como la noche anterior: 00:23 → 24:23. */
+function llamadaMin(l){ var p = /^(\d{1,2}):(\d{2})$/.exec(l || ''); if (!p) return null; var h = +p[1], mi = +p[2]; if (h > 23 || mi > 59) return null; return (h < 6 ? h + 24 : h) * 60 + mi; }
+/* Una última llamada entre las 06:00 y las 11:59 no es creíble para un restaurante de noche (casi seguro es 12 h mal escritas): se marca y no entra en las medias. */
+function llamadaDudosa(l){ var p = /^(\d{1,2}):(\d{2})$/.exec(l || ''); if (!p) return false; var h = +p[1]; return h >= 6 && h < 12; }
+function fmtLlamada(min){ if (min === null || min === undefined || isNaN(min)) return '—'; var t = Math.round(min) % 1440; return pad(Math.floor(t / 60)) + ':' + pad(t % 60); }
+/* lista: [{f: 'AAAA-MM-DD', c: comidas, e: cenas, l: 'HH:MM'}] en el orden recibido */
+function crearServicio(lista){
+  var dias = {}, n = {};
+  (lista || []).forEach(function(x){
+    if (!x || !esIso(x.f)) return;
+    n[x.f] = (n[x.f] || 0) + 1;
+    var c = x.c > 0 ? Math.round(x.c) : 0, e = x.e > 0 ? Math.round(x.e) : 0;
+    dias[x.f] = { f: x.f, c: c, e: e, t: c + e, l: x.l || '' };           // el último registro de la fecha sustituye al anterior
+  });
+  var fechas = Object.keys(dias).sort();
+  fechas.forEach(function(f){ var d = dias[f]; d.r = n[f]; d.dud = llamadaDudosa(d.l); d.lm = d.dud ? null : llamadaMin(d.l); });
+  return { dias: dias, fechas: fechas, registros: (lista || []).length, repetidos: fechas.filter(function(f){ return dias[f].r > 1; }).length };
+}
+/* Resumen de [desde, hasta]. Las ventas (en céntimos) salen del modelo de ventas m. */
+function servicioPeriodo(sv, m, desde, hasta){
+  var r = { desde: desde, hasta: hasta, regs: 0, dias: 0, c: 0, e: 0, t: 0, diasC: 0, diasE: 0, ventas: 0, tVentas: 0, diasVentas: 0, llam: [], dud: 0, repetidos: 0, sinRegistro: 0, sinVentas: 0 };
+  if (!(desde <= hasta)) return finServicio(r);
+  rango(desde, hasta).forEach(function(f){
+    var d = sv.dias[f], v = m.dias[f];
+    if (!d){ if (v) r.sinRegistro++; return; }
+    r.regs++; if (d.r > 1) r.repetidos++; if (d.dud) r.dud++;
+    if (d.t <= 0) return;                                                    // registro sin comensales: no cuenta como día de servicio
+    r.dias++; r.c += d.c; r.e += d.e; r.t += d.t; if (d.c > 0) r.diasC++; if (d.e > 0) r.diasE++;
+    if (d.lm !== null) r.llam.push(d.lm);
+    if (v){ r.ventas += v.tot.c; r.tVentas += d.t; r.diasVentas++; } else r.sinVentas++;
+  });
+  return finServicio(r);
+}
+function finServicio(r){
+  r.mediaT = r.dias ? r.t / r.dias : null; r.mediaC = r.diasC ? r.c / r.diasC : null; r.mediaE = r.diasE ? r.e / r.diasE : null;
+  r.porComensal = r.tVentas ? r.ventas / r.tVentas : null;
+  r.llamMedia = r.llam.length ? r.llam.reduce(function(s, x){ return s + x; }, 0) / r.llam.length : null;
+  return r;
+}
+/* Un elemento por fecha de [desde, hasta] (también las que no tienen registro) */
+function servicioSerie(sv, m, desde, hasta){
+  return rango(desde, hasta).map(function(f){
+    var d = sv.dias[f], v = m.dias[f], s = { fecha: f, tiene: !!d, c: 0, e: 0, t: 0, l: '', dud: false, r: 0, ventas: v ? v.tot.c : null, porC: null };
+    if (d){ s.c = d.c; s.e = d.e; s.t = d.t; s.l = d.l; s.dud = d.dud; s.r = d.r; if (v && d.t > 0) s.porC = v.tot.c / d.t; }
+    return s;
+  });
+}
+/* Medias por día de la semana: comensales y venta por comensal */
+function servicioPorDiaSemana(serie){
+  var acc = [0, 1, 2, 3, 4, 5, 6].map(function(){ return { n: 0, t: 0, c: 0, e: 0, nc: 0, ne: 0, ventas: 0, tVentas: 0 }; });
+  serie.forEach(function(s){
+    if (!s.tiene || s.t <= 0) return;
+    var w = acc[diaSemana(s.fecha)]; w.n++; w.t += s.t; w.c += s.c; w.e += s.e; if (s.c > 0) w.nc++; if (s.e > 0) w.ne++;
+    if (s.ventas !== null){ w.ventas += s.ventas; w.tVentas += s.t; }
+  });
+  return acc.map(function(w, i){ return { dia: DIAS_L[i], corto: DIAS_C[i], n: w.n, t: w.n ? w.t / w.n : 0, c: w.nc ? w.c / w.nc : 0, e: w.ne ? w.e / w.ne : 0, nc: w.nc, ne: w.ne, porComensal: w.tVentas ? w.ventas / w.tVentas : null }; });
+}
 function diasSinDatos(m){
   if (m.fechas.length < 2) return [];
   return rango(primeraFecha(m), ultimaFecha(m)).filter(function(f){ return !m.dias[f]; });
@@ -571,7 +642,8 @@ return {
   normalizarClasif: normalizarClasif, crearModelo: crearModelo, catDe: catDe, subDe: subDe,
   agregar: agregar, ordenar: ordenar, ranking: ranking, lista: lista, entradasPorProveedor: entradasPorProveedor, listaMusicos: listaMusicos, proveedoresConocidos: proveedoresConocidos,
   ultimaFecha: ultimaFecha, primeraFecha: primeraFecha, cargados: cargados, resolverPeriodo: resolverPeriodo, periodoComparable: periodoComparable,
-  serieDiaria: serieDiaria, mediaPorDiaSemana: mediaPorDiaSemana, diasSinDatos: diasSinDatos, lectura: lectura, frenteA: frenteA
+  serieDiaria: serieDiaria, mediaPorDiaSemana: mediaPorDiaSemana,
+  llamadaMin: llamadaMin, llamadaDudosa: llamadaDudosa, fmtLlamada: fmtLlamada, crearServicio: crearServicio, servicioPeriodo: servicioPeriodo, servicioSerie: servicioSerie, servicioPorDiaSemana: servicioPorDiaSemana, diasSinDatos: diasSinDatos, lectura: lectura, frenteA: frenteA
 };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = TOM;
@@ -605,7 +677,7 @@ async function pedir(url, opciones, ms){
 async function ventas(token){
   var j = await pedir(URL_SERVICIO, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ accion: 'ventas', token: token || '' }) }, 60000);
   if (!j.ok) throw error(j);
-  return { clasif: j.clasif || null, estado: j.estado || null, shards: j.shards || [] };
+  return { clasif: j.clasif || null, estado: j.estado || null, shards: j.shards || [], servicio: j.servicio || null };
 }
 /* Acciones del servicio (login, sesion, publicar, borrarDia, clasificar). Se envía como texto simple para evitar la comprobación previa de CORS. */
 async function accion(nombre, datos, token){
@@ -632,7 +704,8 @@ var S = {
   tab: 'resumen', modo: 'dia', anchor: null, rango: null,
   metrica: 'u', listaMovil: 'Platos principales',
   evo: { vent: 30, met: 'c', desg: 'total', sel: null, todos: false },
-  prod: { cat: 'Todas', sub: 'Todas', q: '', orden: 'u' }
+  prod: { cat: 'Todas', sub: 'Todas', q: '', orden: 'u' },
+  sv: null, svInfo: null, srv: { sel: null, todos: false, clave: '', serie: [] }
 };
 
 /* ---------- utilidades ---------- */
@@ -934,6 +1007,92 @@ function vistaEvolucion(){
   return h;
 }
 
+/* ============================== SERVICIO ============================== */
+var COL_COMIDAS = '#FFD400', COL_CENAS = '#1B1A15';
+function kpiS(t, val, d, sub, per){
+  var cd = d === null || d === undefined ? '' : claseDelta(d);
+  return '<div><small>' + t + '</small><b>' + val + '</b>' + (sub ? '<em>' + sub + '</em>' : '<em>&nbsp;</em>') + (cd ? '<em class="vd ' + cd + '">' + signo(d) + ' vs ' + (per.sust === 'día' ? 'semana ant.' : 'anterior') + '</em>' : '') + '</div>';
+}
+function vacioS(t, x){ return '<div class="vacio"><b>' + t + '</b>' + x + '</div>'; }
+function lecturaServicio(serie, i){
+  var s = serie[i]; if (!s) return '<b>Toca una barra</b> para ver el detalle del día.';
+  if (!s.tiene) return '<b>' + T.fmtFechaLarga(s.fecha) + '</b><br>Sin registro de servicio este día.';
+  if (s.t <= 0) return '<b>' + T.fmtFechaLarga(s.fecha) + '</b><br>Registro sin comensales (día sin servicio).';
+  var h = '<b>' + T.fmtFechaLarga(s.fecha) + '</b> · ' + T.fmtNum(s.t) + ' ' + plural(s.t, 'comensal', 'comensales') + '<br>Comidas ' + T.fmtNum(s.c) + ' · Cenas ' + T.fmtNum(s.e);
+  h += s.ventas !== null ? ' · Ventas ' + T.fmtEur(s.ventas) + ' · ' + T.fmtEur(Math.round(s.porC)) + ' por comensal' : ' · sin ventas cargadas';
+  if (s.l) h += '<br>Última llamada ' + esc(s.l) + (s.dud ? ' (dudosa: no entra en la media)' : '');
+  if (s.r > 1) h += '<br>' + s.r + ' registros este día: se usa el último.';
+  return h;
+}
+function graficoServicio(serie){
+  var n = serie.length, max = 0; serie.forEach(function(s){ if (s.t > max) max = s.t; });
+  var top = escala(max), paso = n <= 10 ? 1 : n <= 16 ? 2 : n <= 45 ? 5 : n <= 100 ? 7 : 15;
+  var sel = S.srv.sel !== null && S.srv.sel < n ? S.srv.sel : (function(){ for (var i = n - 1; i >= 0; i--) if (serie[i].tiene && serie[i].t > 0) return i; return n - 1; })();
+  S.srv.sel = sel;
+  var h = '<div class="lectura-dia" id="lect-srv" aria-live="polite">' + lecturaServicio(serie, sel) + '</div>' +
+    '<div class="grafico"><div class="y" aria-hidden="true"><span>' + T.fmtNum(top) + '</span><span>' + T.fmtNum(top / 2) + '</span><span>0</span></div><div class="plot"><div class="barras" style="min-width:' + (n * 9) + 'px">';
+  serie.forEach(function(s, i){
+    var hay = s.tiene && s.t > 0;
+    var pila = [[s.c, COL_COMIDAS], [s.e, COL_CENAS]].map(function(g){ return g[0] > 0 ? '<i style="height:' + (g[0] / top * 230) + 'px;background:' + g[1] + '"></i>' : ''; }).join('');
+    h += '<button type="button" class="col' + (hay ? '' : ' sin') + '" data-act="srv-sel" data-v="' + i + '" aria-pressed="' + (i === sel) + '" aria-label="' + T.fmtFechaLarga(s.fecha) + ': ' + (hay ? T.fmtNum(s.t) + ' comensales' : 'sin servicio') + '">' + (hay ? '<span class="pila" style="min-height:2px">' + pila + '</span>' : '<span class="hueco"></span>') + '</button>';
+  });
+  h += '</div><div class="eje-x" style="min-width:' + (n * 9) + 'px">' + serie.map(function(s, i){
+    var d = +s.fecha.slice(8), mostrar = i % paso === 0 || i === n - 1 && n <= 10;
+    if (!mostrar) return '<span></span>';
+    return '<span>' + (n <= 10 ? '<em>' + T.DIAS_C[T.diaSemana(s.fecha)] + '</em><em>' + d + '</em>' : '<em>' + (d === 1 || i === 0 ? d + ' ' + T.MESES_C[+s.fecha.slice(5, 7) - 1] : d) + '</em>') + '</span>';
+  }).join('') + '</div></div></div><div class="leyenda"><span><i style="background:' + COL_COMIDAS + '"></i>Comidas</span><span><i style="background:' + COL_CENAS + '"></i>Cenas</span></div>';
+  return h;
+}
+function refrescarLecturaServicio(){
+  var l = document.getElementById('lect-srv'); if (l) l.innerHTML = lecturaServicio(S.srv.serie, S.srv.sel);
+  Array.prototype.forEach.call(document.querySelectorAll('.col'), function(b, i){ b.setAttribute('aria-pressed', String(i === S.srv.sel)); });
+}
+function calidadServicio(p, per){
+  var sv = S.sv, m = S.m, f = sv.fechas, ult = T.ultimaFecha(m), l = [];
+  l.push('<div><dt>Datos de servicio</dt><dd>Del ' + T.fmtFecha(f[0]) + ' al ' + T.fmtFecha(f[f.length - 1]) + ' · ' + f.length + ' ' + plural(f.length, 'día', 'días') + ' con registro</dd></div>');
+  if (f[f.length - 1] < ult) l.push('<div><dt>Último dato</dt><dd class="aviso-txt">El último día con datos de servicio es el ' + T.fmtFechaLarga(f[f.length - 1]) + ', pero las ventas llegan hasta el ' + T.fmtFechaLarga(ult) + '. Lo que falte se completa cuando se registre.</dd></div>');
+  if (p.repetidos) l.push('<div><dt>Varios registros el mismo día</dt><dd>' + p.repetidos + ' ' + plural(p.repetidos, 'día', 'días') + ' en este periodo: se usa el último registro de cada fecha.</dd></div>');
+  if (p.dud) l.push('<div><dt>Llamadas dudosas</dt><dd>' + p.dud + ' ' + plural(p.dud, 'llamada', 'llamadas') + ' entre las 06:00 y las 11:59 (probablemente mal escritas): no entran en la media.</dd></div>');
+  if (p.sinRegistro) l.push('<div><dt>Días con ventas sin dato de servicio</dt><dd>' + p.sinRegistro + ' en este periodo, por lo que no cuentan en la venta por comensal.</dd></div>');
+  if (p.sinVentas) l.push('<div><dt>Días con servicio sin ventas cargadas</dt><dd>' + p.sinVentas + ' en este periodo: cuentan como comensales pero no en la venta por comensal.</dd></div>');
+  if (S.svInfo && S.svInfo.descartados) l.push('<div><dt>Registros descartados</dt><dd>' + S.svInfo.descartados + ' por tener una fecha o unas cifras no válidas.</dd></div>');
+  return '<section class="bloque" style="margin-top:34px"><h2>Calidad de los datos</h2><dl class="hechos">' + l.join('') + '</dl></section>';
+}
+function vistaServicio(){
+  var m = S.m, h = barraPeriodo(), per = T.resolverPeriodo(m, perState());
+  if (!S.svInfo) return h + '<div class="aviso info">El servicio de Google todavía no entrega los datos de servicio (comidas, cenas y última llamada). Falta publicar la versión nueva del servicio.</div>';
+  if (S.svInfo.error) return h + '<div class="aviso warn">' + esc(S.svInfo.error) + ' El resto del panel funciona con normalidad.</div>';
+  var aviso = S.svInfo.desactualizado ? '<div class="aviso warn">Los datos de servicio son una copia reciente: ahora mismo no se puede consultar el origen.</div>' : '';
+  if (!S.sv.fechas.length) return h + aviso + vacioS('Todavía no hay datos de servicio', 'Aparecerán aquí cuando se registren comidas y cenas.');
+  if (!per.fechas.length) return h + aviso + vacioS('No hay datos en este periodo', 'Elige otro periodo con ventas cargadas.');
+  var p = T.servicioPeriodo(S.sv, m, per.desde, per.hastaEf), f0 = S.sv.fechas[0], f1 = S.sv.fechas[S.sv.fechas.length - 1];
+  if (!p.regs) return h + aviso + vacioS('No hay datos de servicio en este periodo', 'Los hay del ' + T.fmtFecha(f0) + ' al ' + T.fmtFecha(f1) + '. Elige un periodo dentro de ese tramo.');
+  var clave = per.desde + '|' + per.hastaEf; if (S.srv.clave !== clave){ S.srv.clave = clave; S.srv.sel = null; S.srv.todos = false; }
+  var comp = T.periodoComparable(m, per), pc = comp ? T.servicioPeriodo(S.sv, m, comp.desde, comp.hasta) : null, hay = pc && pc.dias > 0 && pc.dias >= Math.ceil(p.dias / 2);
+  var dT = hay && p.mediaT !== null ? T.pctVar(p.mediaT, pc.mediaT) : null, dP = hay && p.porComensal !== null && pc.porComensal !== null ? T.pctVar(p.porComensal, pc.porComensal) : null;
+  var serie = T.servicioSerie(S.sv, m, per.desde, per.hastaEf); S.srv.serie = serie;
+  h += aviso + '<section class="bloque"><h2>Servicio · ' + esc(per.etiqueta) + '</h2><p class="sub-txt">Comensales de comidas y cenas, y última llamada. Si una fecha tiene varios registros, vale el último.</p><div class="estadisticas">' +
+    kpiS('Comensales', T.fmtNum(p.t), null, '<span class="nw">comidas ' + T.fmtNum(p.c) + '</span> · <span class="nw">cenas ' + T.fmtNum(p.e) + '</span>', per) +
+    kpiS('Media por día', p.mediaT !== null ? T.fmtNum(Math.round(p.mediaT)) : '—', dT, p.dias + ' ' + plural(p.dias, 'día', 'días') + ' con servicio', per) +
+    kpiS('Venta por comensal', p.porComensal !== null ? T.fmtEur(Math.round(p.porComensal)) : '—', dP, p.porComensal !== null ? 'en ' + p.diasVentas + ' ' + plural(p.diasVentas, 'día', 'días') + ' con ventas' : 'sin ventas en este periodo', per) +
+    kpiS('Última llamada media', p.llamMedia !== null ? T.fmtLlamada(p.llamMedia) : '—', null, p.llam.length + ' ' + plural(p.llam.length, 'día', 'días') + ' con hora', per) +
+    kpiS('Media en comidas', p.mediaC !== null ? T.fmtNum(Math.round(p.mediaC)) : '—', null, 'en ' + p.diasC + ' ' + plural(p.diasC, 'día', 'días') + ' con comidas', per) +
+    kpiS('Media en cenas', p.mediaE !== null ? T.fmtNum(Math.round(p.mediaE)) : '—', null, 'en ' + p.diasE + ' ' + plural(p.diasE, 'día', 'días') + ' con cenas', per) + '</div></section>';
+  h += '<section class="bloque" style="margin-top:34px"><h2>Comensales día a día</h2>' + graficoServicio(serie) + '</section>';
+  if (p.dias >= 7){
+    var w = T.servicioPorDiaSemana(serie), mx = Math.max.apply(null, w.map(function(x){ return x.t; })) || 1;
+    h += '<section class="bloque" style="margin-top:34px"><h2>Media por día de la semana</h2><p class="sub-txt">Comensales medios de cada día y venta por comensal en este periodo.</p><ul class="filas cats">' +
+      w.map(function(x){ return '<li><span class="nom">' + x.dia.charAt(0).toUpperCase() + x.dia.slice(1) + '</span><span class="eur">' + (x.n ? T.fmtNum(Math.round(x.t)) + ' ' + plural(Math.round(x.t), 'comensal', 'comensales') : '—') + '</span><span class="det"><span>' + x.n + ' ' + plural(x.n, 'día', 'días') + ' con servicio' + (x.nc ? ' · comidas ' + T.fmtNum(Math.round(x.c)) : '') + (x.ne ? ' · cenas ' + T.fmtNum(Math.round(x.e)) : '') + '</span><span>' + (x.porComensal !== null ? T.fmtEur(Math.round(x.porComensal)) + ' por comensal' : '') + '</span></span>' +
+        '<div class="barra"><i style="width:' + x.t / mx * 100 + '%;background:#FFD400"></i></div></li>'; }).join('') + '</ul></section>';
+  }
+  var lista = serie.filter(function(s){ return s.tiene && s.t > 0; }).reverse(), recorte = !S.srv.todos && lista.length > 31;
+  h += '<section class="bloque" style="margin-top:34px"><h2>Detalle por día</h2><p class="sub-txt">Toca un día con ventas para ver su resumen.</p><ul class="lista-dias">' + (recorte ? lista.slice(0, 31) : lista).map(function(s){
+    var notas = []; if (s.r > 1) notas.push(s.r + ' registros'); if (s.dud) notas.push('llamada dudosa'); else if (s.l) notas.push('llamada ' + esc(s.l));
+    return '<li><button type="button" data-act="ir-dia" data-v="' + s.fecha + '"' + (s.ventas === null ? ' disabled' : '') + '><span class="f">' + T.fmtFechaLarga(s.fecha) + (notas.length ? '<small class="nota">' + notas.join(' · ') + '</small>' : '') + '</span><span class="e">' + (s.porC !== null ? T.fmtEur(Math.round(s.porC)) : '—') + '</span><span class="u">' + T.fmtNum(s.t) + ' ' + plural(s.t, 'comensal', 'comensales') + '</span></button></li>'; }).join('') + '</ul>' +
+    (recorte ? '<p style="margin-top:14px"><button type="button" class="btn claro" data-act="srv-todos">Ver los ' + lista.length + ' días</button></p>' : '') + '</section>';
+  return h + calidadServicio(p, per);
+}
+
 /* ============================== PRODUCTOS ============================== */
 function listaProductos(a, ac){
   var p = S.prod, m = S.m, all = Object.keys(a.prods).map(function(k){ return a.prods[k]; });
@@ -993,6 +1152,7 @@ function vistaDatos(){
     (m.excluidos.u ? '<div><dt>Cupones apartados</dt><dd>' + T.fmtNum(m.excluidos.u) + ' uds. (' + T.fmtEur(m.excluidos.c) + '): no cuentan en ninguna cifra</dd></div>' : '') +
     (m.musicos.u ? '<div><dt>Consumiciones de músicos</dt><dd>' + T.fmtNum(m.musicos.u) + ' uds. en total (' + T.fmtEur(m.musicos.c) + '): se muestran aparte</dd></div>' : '') +
     (S.estado && S.estado.ultima ? '<div><dt>Última carga automática</dt><dd>' + esc(T.fmtFecha(S.estado.ultima.slice(0, 10)) + ' ' + S.estado.ultima.slice(11, 16)) + (S.estado.nuevos ? ' · ' + S.estado.nuevos + ' ' + plural(S.estado.nuevos, 'día nuevo', 'días nuevos') : ' · sin novedades') + '</dd></div>' : '') +
+    (S.svInfo ? '<div><dt>Datos de servicio</dt><dd>' + (S.svInfo.error ? esc(S.svInfo.error) : (S.sv.fechas.length ? 'Del ' + T.fmtFecha(S.sv.fechas[0]) + ' al ' + T.fmtFecha(S.sv.fechas[S.sv.fechas.length - 1]) + ' · ' + S.sv.fechas.length + ' días' : 'Sin registros') + (S.svInfo.desactualizado ? ' · copia reciente' : '')) + '<br><small>Origen: registro de operaciones (comidas, cenas y última llamada)</small></dd></div>' : '') +
     '<div><dt>Origen</dt><dd>Ágora · Ventas por Productos por Centro de Venta</dd></div>' +
     (ultimo && ultimo.archivo ? '<div><dt>Último archivo</dt><dd>' + esc(ultimo.archivo) + (ultimo.cargado ? '<br><small>Cargado el ' + T.fmtFecha(ultimo.cargado.slice(0, 10)) + '</small>' : '') + '</dd></div>' : '') +
     '</dl></section>';
@@ -1008,15 +1168,17 @@ function vistaDatos(){
 function vistaVacia(){ return '<div class="vacio"><b>Todavía no hay ventas cargadas</b>Cuando se cargue el primer día, aparecerá aquí el resumen.</div>'; }
 function pintarPag(){
   var m = S.m, el = document.getElementById('pag'); if (!el) return;
-  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : vistaDatos());
+  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : vistaDatos());
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function(b){ b.setAttribute('aria-selected', String(b.dataset.v === S.tab)); });
   var pl = document.querySelector('.grafico .plot'); if (pl) pl.scrollLeft = pl.scrollWidth;
+  var cont = document.querySelector('.tabs-in'), tsel = document.querySelector('.tab[aria-selected="true"]');       // en pantallas estrechas, la pestaña activa queda a la vista
+  if (cont && tsel) cont.scrollLeft = Math.max(0, tsel.offsetLeft - (cont.clientWidth - tsel.offsetWidth) / 2);
 }
 function armarMarco(){
   var m = S.m, ult = T.ultimaFecha(m);
   app.innerHTML = '<header class="cab"><div class="cab-in">' + MARCA + '' +
     '<div class="cab-txt"><b>Ventas · panel de socios</b><small>' + (ult ? 'Datos hasta el ' + T.fmtFechaLarga(ult) : 'Sin datos todavía') + ' · <button type="button" class="enlace" data-act="salir">Salir</button></small></div></div></header>' +
-    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['datos', 'Datos']].map(function(t){
+    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['datos', 'Datos']].map(function(t){
       return '<button type="button" role="tab" class="tab" data-act="tab" data-v="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></nav><main class="pag" id="pag"></main>';
   pintarPag();
 }
@@ -1044,6 +1206,8 @@ function actuar(act, v){
     case 'evo-desg': S.evo.desg = v; break;
     case 'evo-todos': S.evo.todos = true; break;
     case 'evo-sel': S.evo.sel = +v; refrescarLecturaDia(); return;
+    case 'srv-sel': S.srv.sel = +v; refrescarLecturaServicio(); return;
+    case 'srv-todos': S.srv.todos = true; break;
     case 'ir-dia': S.modo = 'dia'; S.anchor = v; S.tab = 'resumen'; pintarPag(); scrollArriba(); return;
     case 'ver-prov-evo': S.evo.desg = 'prov'; S.tab = 'evolucion'; pintarPag(); scrollArriba(); return;
     case 'prod-cat': S.prod.cat = v; S.prod.sub = 'Todas'; break;
@@ -1112,6 +1276,8 @@ async function iniciar(){
     S.progreso = [1, 4]; pintarCarga();
     var d = await API.ventas(ses.token);
     S.m = T.crearModelo(d.shards, d.clasif); S.estado = d.estado || null; S.ses = ses;
+    S.svInfo = d.servicio ? { error: d.servicio.error || '', desactualizado: !!d.servicio.desactualizado, leido: d.servicio.leido || '', descartados: d.servicio.descartados || 0 } : null;
+    S.sv = T.crearServicio(d.servicio && d.servicio.dias ? d.servicio.dias : []); S.srv = { sel: null, todos: false, clave: '', serie: [] };
     var ult = T.ultimaFecha(S.m);
     S.anchor = ult;
     if (ult){ var prim = T.primeraFecha(S.m), ini = T.sumarDias(ult, -29); S.rango = { desde: ini < prim ? prim : ini, hasta: ult }; }
