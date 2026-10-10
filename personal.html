@@ -125,7 +125,7 @@ var URL_SERVICIO = 'https://script.google.com/macros/s/AKfycbywMYu2_J6dUi_MiZAar
 var CLAVE_SESION = 'lnt-personal-sesion';
 var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 var DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-var S = { token: '', paso: 'acceso', tab: 'lista', msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:30','21:30','00:30'], vista: null, enviando: '' };
+var S = { token: '', paso: 'acceso', tab: 'lista', msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:00','21:30','00:30'], vista: null, enviando: '' };
 
 function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
 function pad(n){ return (n < 10 ? '0' : '') + n; }
