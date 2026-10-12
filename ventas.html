@@ -320,6 +320,12 @@ button{ cursor:pointer; }
 .sim-kpi small{ display:block; color:var(--suave); }
 .sim-kpi b{ display:block; font-size:24px; letter-spacing:-.01em; } .sim-kpi b.mas{ color:var(--sube); } .sim-kpi b.menos{ color:var(--baja); }
 .sim-kpi span{ font-size:14px; color:var(--suave); }
+
+.sim-semana{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin:10px 0 0; align-items:end; }
+.sim-semana > div{ text-align:center; padding:4px 0 6px; border:1.5px solid var(--linea); border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:3px; background:var(--blanco); min-height:76px; opacity:.55; }
+.sim-semana > div.on{ border-color:var(--tinta); opacity:1; background:var(--amarillo-claro); }
+.sim-semana small{ font-size:12px; color:var(--suave); } .sim-semana b{ font-size:13px; }
+.sim-semana i{ display:block; width:62%; background:var(--tinta); border-radius:3px 3px 0 0; }
 </style>
 </head>
 <body>
@@ -728,11 +734,24 @@ function perdidaHistorica(hist, P0, P1){
   return Math.max(0, Math.min(100, -e * rp));
 }
 /* Punto de partida de un producto en una ventana: precio actual, unidades al año y proveniencia */
-function baseProducto(a, hist, k){
+function baseProducto(a, hist, k, cal){
   var p = a.prods[k]; if (!p || !a.fechas.length) return null;
   var span = isoNum(a.fechas[a.fechas.length - 1]) - isoNum(a.fechas[0]) + 1;
   var P0 = hist && hist.ultimoPrecio ? hist.ultimoPrecio : (p.u ? p.c / p.u : 0);
-  return { k: k, n: p.n, cat: p.cat, P0: P0, U: p.u * 365 / span, uDia: p.u / a.fechas.length, uVent: p.u, dias: a.fechas.length, span: span };
+  /* cal = { nCal: veces que cae en el periodo alguno de los días de la semana elegidos, nSel: cuántos días de la semana hay elegidos }.
+     Unidades al año = lo vendido por cada uno de esos días del calendario × los que hay en un año (365/7 por día de la semana). Sin cal: todos los días. */
+  var U = cal && cal.nCal > 0 ? p.u / cal.nCal * cal.nSel * 365 / 7 : p.u * 365 / span;
+  return { k: k, n: p.n, cat: p.cat, P0: P0, U: U, uDia: p.u / a.fechas.length, uVent: p.u, dias: a.fechas.length, span: span };
+}
+/* Cómo se vende un producto según el día de la semana (lunes = 0): unidades medias por día abierto */
+function productoPorDiaSemana(m, k, fechas){
+  var o = []; for (var i = 0; i < 7; i++) o.push({ u: 0, dias: 0, media: 0 });
+  fechas.forEach(function(f){
+    var d = m.dias[f]; if (!d) return; var w = o[diaSemana(f)]; w.dias++;
+    d.filas.forEach(function(r){ if (r.ex || r.k !== k) return; for (var j = 0; j < r.u.length; j++) w.u += r.u[j]; });
+  });
+  o.forEach(function(w){ w.media = w.dias ? w.u / w.dias : 0; });
+  return o;
 }
 /* L: { P0, P1, U (unidades/año), C (coste o null), perd (% de unidades que se pierden) } → cifras anuales en céntimos */
 function simularLinea(L){
@@ -770,7 +789,7 @@ return {
   agregar: agregar, ordenar: ordenar, ranking: ranking, lista: lista, entradasPorProveedor: entradasPorProveedor, listaMusicos: listaMusicos, proveedoresConocidos: proveedoresConocidos,
   ultimaFecha: ultimaFecha, primeraFecha: primeraFecha, cargados: cargados, resolverPeriodo: resolverPeriodo, periodoComparable: periodoComparable,
   serieDiaria: serieDiaria, mediaPorDiaSemana: mediaPorDiaSemana,
-  historialPrecio: historialPrecio, perdidaHistorica: perdidaHistorica, baseProducto: baseProducto, simularLinea: simularLinea, simularConjunto: simularConjunto, tablaEscenarios: tablaEscenarios,
+  historialPrecio: historialPrecio, perdidaHistorica: perdidaHistorica, baseProducto: baseProducto, productoPorDiaSemana: productoPorDiaSemana, simularLinea: simularLinea, simularConjunto: simularConjunto, tablaEscenarios: tablaEscenarios,
   llamadaMin: llamadaMin, llamadaDudosa: llamadaDudosa, fmtLlamada: fmtLlamada, crearServicio: crearServicio, servicioPeriodo: servicioPeriodo, servicioSerie: servicioSerie, servicioPorDiaSemana: servicioPorDiaSemana, diasSinDatos: diasSinDatos, lectura: lectura, frenteA: frenteA
 };
 })();
@@ -834,7 +853,7 @@ var S = {
   evo: { vent: 30, met: 'c', desg: 'total', sel: null, todos: false },
   prod: { cat: 'Todas', sub: 'Todas', q: '', orden: 'u' },
   sv: null, svInfo: null, srv: { sel: null, todos: false, clave: '', serie: [] },
-  sim: { vent: 90, q: '', items: [], perd: 10, hist: {} }
+  sim: { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true] }
 };
 
 /* ---------- utilidades ---------- */
@@ -1279,15 +1298,27 @@ function signo(c, f){ f = f || T.fmtEurEnt; return (c > 0 ? '+' : (c < 0 ? '' : 
 function quitarTildes(s){ return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 function redondeo5(c){ return Math.round(c / 5) * 5; }
 function simModelo(){ return S.mV || S.m; }
-function simVentana(){
-  var m = simModelo(), v = S.sim.vent, ult = T.ultimaFecha(m);
-  return m.fechas.filter(function(f){ return v === 'todo' || f >= T.sumarDias(ult, -(v - 1)); });
+function simDesde(){ var m = simModelo(), v = S.sim.vent, ult = T.ultimaFecha(m), prim = T.primeraFecha(m); if (v === 'todo') return prim; var d = T.sumarDias(ult, -(v - 1)); return d < prim ? prim : d; }
+function simVentanaTodos(){ var m = simModelo(), d = simDesde(); return m.fechas.filter(function(f){ return f >= d; }); }
+/* Días con ventas del periodo que caen en los días de la semana elegidos */
+function simVentana(){ var sel = S.sim.dias; return simVentanaTodos().filter(function(f){ return sel[T.diaSemana(f)]; }); }
+/* Cuántos días del calendario del periodo caen en los días elegidos (cuentan también los días cerrados) */
+function simCal(){
+  var m = simModelo(), d = simDesde(), u = T.ultimaFecha(m), sel = S.sim.dias, n = 0, nSel = sel.filter(Boolean).length;
+  for (var i = T.isoNum(d), fin = T.isoNum(u); i <= fin; i++) if (sel[((i + 3) % 7 + 7) % 7]) n++;
+  return { nCal: n, nSel: nSel };
+}
+function simDiasTexto(){
+  var sel = S.sim.dias, N = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos'], P = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados', 'domingos'], l = [];
+  sel.forEach(function(x, i){ if (x) l.push(P[i]); });
+  if (l.length === 7) return 'todos los días';
+  return l.length > 1 ? l.slice(0, -1).join(', ') + ' y ' + l[l.length - 1] : l[0];
 }
 function simHist(k){ var m = simModelo(); if (!S.sim.hist[k]) S.sim.hist[k] = T.historialPrecio(m, k); return S.sim.hist[k]; }
 function simLineas(){
   var m = simModelo(), a = T.agregar(m, simVentana()), out = [];
   S.sim.items.forEach(function(it){
-    var hist = simHist(it.k), b = T.baseProducto(a, hist, it.k);
+    var hist = simHist(it.k), b = T.baseProducto(a, hist, it.k, simCal());
     out.push({ it: it, base: b, hist: hist, L: b ? { P0: b.P0, P1: it.nuevo !== null ? it.nuevo : b.P0, U: b.U, C: it.coste, perd: it.perd } : null });
   });
   return { a: a, lineas: out };
@@ -1306,7 +1337,7 @@ function simLineaHtml(x){
   var it = x.it, ix = S.sim.items.indexOf(x.it), b = x.base, h = '<div class="sim-linea" data-k="' + esc(it.k) + '"><div class="sim-cab"><div><b>' + esc(bonito(b ? b.n : it.k)) + '</b><small>' + esc(b ? b.cat : '') + '</small></div><button type="button" class="btn claro peq" data-act="sim-del" data-v="' + esc(it.k) + '">Quitar</button></div>';
   if (!b) return h + '<p class="sim-dato">Este producto no tiene ventas en el periodo elegido. Elige un periodo más largo.</p></div>';
   var L = x.L, P0 = b.P0, P1 = L.P1, r = T.simularLinea({ P0: L.P0, P1: L.P1, U: L.U, C: L.C, perd: 0 }), hist = x.hist;
-  h += '<p class="sim-dato">Ahora se vende a <b>' + T.fmtEur(P0) + '</b> · <b>' + T.fmtNum(b.uDia, 1) + '</b> uds. por día abierto (≈ ' + T.fmtNum(b.U) + ' al año) · ' + T.fmtEurEnt(b.U * P0) + ' al año</p>';
+  h += '<p class="sim-dato">Ahora se vende a <b>' + T.fmtEur(P0) + '</b> · <b>' + T.fmtNum(b.uDia, 1) + '</b> uds. por ' + (S.sim.dias.every(Boolean) ? 'día abierto' : 'día abierto (' + esc(simDiasTexto()) + ')') + ' (≈ ' + T.fmtNum(b.U) + ' al año) · ' + T.fmtEurEnt(b.U * P0) + ' al año</p>' + simSemanaHtml(it.k);
   h += '<div class="sim-campos"><div><label for="n-' + esc(it.k) + '">Precio nuevo (€)</label><input class="campo" id="n-' + ix + '" inputmode="decimal" autocomplete="off" data-f="sim-nuevo" data-k="' + esc(it.k) + '" placeholder="' + esc(eurIn(P0)) + '" value="' + esc(eurIn(it.nuevo)) + '"></div>' +
     '<div><label for="c-' + ix + '">Coste por unidad (€) · opcional</label><input class="campo" id="c-' + ix + '" inputmode="decimal" autocomplete="off" data-f="sim-coste" data-k="' + esc(it.k) + '" placeholder="Para ver el margen" value="' + esc(eurIn(it.coste)) + '"></div></div>';
   h += '<div class="sim-rapido" role="group" aria-label="Subidas rápidas">' + [['+5 %', 'p5'], ['+10 %', 'p10'], ['+15 %', 'p15'], ['+0,50 €', 'e50'], ['+1 €', 'e100']].map(function(o){ return '<button type="button" data-act="sim-sube" data-k="' + esc(it.k) + '" data-v="' + o[1] + '">' + o[0] + '</button>'; }).join('') + '</div>';
@@ -1322,6 +1353,12 @@ function simLineaHtml(x){
   var est = T.perdidaHistorica(hist, P0, P1);
   if (est !== null) h += '<p class="sim-dato">Según lo que pasó antes con este producto, una subida así podría hacerle perder <b>≈ ' + T.fmtPct(est) + '</b> de las unidades. <button type="button" class="btn claro peq" data-act="sim-usar" data-v="' + esc(it.k) + '">' + (it.perd !== null ? 'Usando ' + T.fmtPct(it.perd) + ' · quitar' : 'Usar esta estimación') + '</button></p>';
   return h + simHistorialHtml(x) + '</div>';
+}
+function simSemanaHtml(k){
+  var w = T.productoPorDiaSemana(simModelo(), k, simVentanaTodos()), N = ['L', 'M', 'X', 'J', 'V', 'S', 'D'], mx = 0;
+  w.forEach(function(x){ if (x.media > mx) mx = x.media; });
+  return '<div class="sim-semana" role="group" aria-label="Unidades medias por día de la semana">' + w.map(function(x, i){
+    return '<div class="' + (S.sim.dias[i] ? 'on' : '') + '" title="' + x.dias + ' días con datos"><small>' + N[i] + '</small><i style="height:' + (mx ? Math.max(3, Math.round(x.media / mx * 34)) : 3) + 'px"></i><b>' + (x.dias ? T.fmtNum(x.media, x.media < 10 ? 1 : 0) : '–') + '</b></div>'; }).join('') + '</div>';
 }
 function simHistorialHtml(x){
   var hist = x.hist, h = '<details><summary>Lo que ya ha pasado con su precio</summary>';
@@ -1358,14 +1395,16 @@ function vistaSimulaciones(){
   var m = simModelo(), sim = S.sim, res = simLineas(), v = sim.vent, ventanas = [[30, '30 días'], [90, '90 días'], [180, '180 días'], ['todo', 'Todo']];
   var h = '<section class="bloque"><h2>Simulaciones de precio</h2><p class="sim-aviso"><b>Es solo una calculadora.</b> No cambia ningún precio ni ningún dato: sirve para pensar «¿y si subo este producto?» antes de decidir. El resultado depende de cuánta clientela supongas que se pierde, y eso nadie lo sabe de antemano; por eso verás todos los casos.</p>';
   h += '<p style="margin:0 0 6px;font-weight:700">Base de cálculo</p><div class="seg" role="group" aria-label="Periodo de ventas que sirve de base">' + ventanas.map(function(o){ return '<button type="button" data-act="sim-vent" data-v="' + o[0] + '" aria-pressed="' + (v === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
-  h += '<p class="sub-txt" style="margin:6px 0 16px">Con las ventas de ' + (v === 'todo' ? 'todo el periodo cargado' : 'los últimos ' + v + ' días') + ' (' + simVentana().length + ' días con datos). El precio actual es el último al que se vendió.</p>';
+  h += '<p style="margin:16px 0 6px;font-weight:700">Días de la semana</p><div class="chips" role="group" aria-label="Días de la semana que se simulan">' + ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(function(n, i){ return '<button type="button" data-act="sim-dia" data-v="' + i + '" aria-pressed="' + !!sim.dias[i] + '">' + n + '</button>'; }).join('') + '</div>' +
+    '<div class="sim-rapido" style="margin-top:8px" role="group" aria-label="Selecciones rápidas">' + [['Todos', 'todos'], ['Lunes a jueves', 'lj'], ['Viernes a domingo', 'vd'], ['Solo fin de semana', 'fin']].map(function(o){ return '<button type="button" data-act="sim-dias" data-v="' + o[1] + '">' + o[0] + '</button>'; }).join('') + '</div>';
+  h += '<p class="sub-txt" style="margin:8px 0 16px">Con las ventas de ' + (v === 'todo' ? 'todo el periodo cargado' : 'los últimos ' + v + ' días') + ', solo ' + esc(simDiasTexto()) + ' (' + simVentana().length + ' días con datos). El precio actual es el último al que se vendió. Elige los días que te interesan: una subida puede convenir un sábado y no un lunes.</p>';
   h += '<label for="sim-q" style="display:block;font-weight:700;margin:0 0 6px">Añade un producto</label><input class="campo" id="sim-q" type="search" data-f="sim-q" autocomplete="off" placeholder="Buscar producto…" value="' + esc(sim.q) + '"><div id="sim-busca">' + simBuscadorSeguro(res.a) + '</div></section>';
   if (sim.items.length){
     h += '<section class="bloque"><h2>Tus simulaciones</h2>' + res.lineas.map(simLineaHtml).join('') + '<p><button type="button" class="btn claro peq" data-act="sim-limpiar">Quitar todos</button></p></section>';
     h += '<section class="bloque"><h2>¿Y si se pierde clientela?</h2><label for="sim-perd" style="display:block;font-weight:700">Unidades que se dejan de vender: <span id="sim-perd-txt">' + T.fmtNum(sim.perd) + ' %</span></label>' +
       '<input class="sim-slider" id="sim-perd" type="range" min="0" max="50" step="1" value="' + sim.perd + '" data-f="sim-perd" aria-label="Porcentaje de unidades que se pierden"><div id="sim-res">' + simResultados(res) + '</div></section>';
   }
-  h += '<section class="bloque"><h2>Cómo leer esto</h2><ul class="notas"><li>Se supone que quien no compra el producto <b>no lo sustituye</b> por otro de la carta. Si lo sustituye por uno más barato, el efecto real es algo peor; si lo sustituye por uno más caro, mejor.</li><li>Las cifras de «al año» se calculan con el ritmo de los días abiertos del periodo elegido: no tienen en cuenta temporada, festivos ni cambios de carta.</li><li>Los precios son los de las ventas de Ágora. Si ahí incluyen IVA, escribe también el coste con IVA para que la comparación sea justa; el punto de equilibrio en ingresos no depende de eso.</li><li>El coste solo se guarda en este dispositivo.</li></ul></section>';
+  h += '<section class="bloque"><h2>Cómo leer esto</h2><ul class="notas"><li>Se supone que quien no compra el producto <b>no lo sustituye</b> por otro de la carta. Si lo sustituye por uno más barato, el efecto real es algo peor; si lo sustituye por uno más caro, mejor.</li><li>Las cifras de «al año» se calculan con el ritmo del periodo y de los días de la semana elegidos, como si todo el año fuera así: no tienen en cuenta temporada, festivos ni cambios de carta. Si eliges, por ejemplo, solo viernes y sábados, el resultado es lo que pasaría <b>solo en esos días</b>.</li><li>Las barras de cada producto muestran las unidades medias que vende cada día de la semana, para que veas dónde pesa más.</li><li>Los precios son los de las ventas de Ágora. Si ahí incluyen IVA, escribe también el coste con IVA para que la comparación sea justa; el punto de equilibrio en ingresos no depende de eso.</li><li>El coste solo se guarda en este dispositivo.</li></ul></section>';
   return h;
 }
 function simBuscadorSeguro(a){ try { return simBuscador(a); } catch (e){ return ''; } }
@@ -1381,15 +1420,17 @@ function simAccion(act, v, k){
   var it = S.sim.items.filter(function(i){ return i.k === (k || v); })[0];
   switch (act){
     case 'sim-vent': S.sim.vent = v === 'todo' ? 'todo' : +v; break;
+    case 'sim-dia': { var i = +v, sel = S.sim.dias.slice(); sel[i] = !sel[i]; if (sel.some(Boolean)) S.sim.dias = sel; break; }
+    case 'sim-dias': S.sim.dias = ({ todos: [1, 1, 1, 1, 1, 1, 1], lj: [1, 1, 1, 1, 0, 0, 0], vd: [0, 0, 0, 0, 1, 1, 1], fin: [0, 0, 0, 0, 0, 1, 1] }[v] || [1, 1, 1, 1, 1, 1, 1]).map(Boolean); break;
     case 'sim-add': if (!it && S.sim.items.length < 12) S.sim.items.push({ k: v, nuevo: null, coste: simCostes()[v] === undefined ? null : simCostes()[v], perd: null }); S.sim.q = ''; break;
     case 'sim-del': S.sim.items = S.sim.items.filter(function(i){ return i.k !== v; }); break;
     case 'sim-limpiar': S.sim.items = []; break;
     case 'sim-sube': {
-      if (!it) break; var b = T.baseProducto(T.agregar(simModelo(), simVentana()), simHist(it.k), it.k); if (!b) break;
+      if (!it) break; var b = T.baseProducto(T.agregar(simModelo(), simVentana()), simHist(it.k), it.k, simCal()); if (!b) break;
       var P0 = b.P0, nuevo = v.charAt(0) === 'p' ? P0 * (1 + (+v.slice(1)) / 100) : P0 + (+v.slice(1)); it.nuevo = redondeo5(nuevo); it.perd = null; break; }
     case 'sim-usar': {
       if (!it) break; if (it.perd !== null){ it.perd = null; break; }
-      var b2 = T.baseProducto(T.agregar(simModelo(), simVentana()), simHist(it.k), it.k), est = b2 && it.nuevo !== null ? T.perdidaHistorica(simHist(it.k), b2.P0, it.nuevo) : null;
+      var b2 = T.baseProducto(T.agregar(simModelo(), simVentana()), simHist(it.k), it.k, simCal()), est = b2 && it.nuevo !== null ? T.perdidaHistorica(simHist(it.k), b2.P0, it.nuevo) : null;
       if (est !== null) it.perd = Math.round(est * 10) / 10; break; }
     default: return false;
   }
@@ -1501,7 +1542,7 @@ function actuar(act, v, k){
     case 'prod-orden': S.prod.orden = v; break;
     case 'reintentar': iniciar(); return;
     case 'entrar': entrar(); return;
-    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {} }; pintarAcceso(); return;
+    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true] }; pintarAcceso(); return;
     default: if (act.indexOf('sim-') === 0 && simAccion(act, v, k) !== false) break; return;
   }
   pintarPag(); window.scrollTo(0, antes);
