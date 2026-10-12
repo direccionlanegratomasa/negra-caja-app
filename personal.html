@@ -69,8 +69,8 @@ label{ display:block; font-weight:700; font-size:16px; margin:0 0 6px; }
 
 .cab-in, main{ max-width:860px; }
 body{ font-size:17px; }
-.pestanas{ display:flex; gap:10px; margin:0 0 16px; }
-.pestanas button{ flex:1; min-height:52px; border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); font-weight:700; font-size:18px; }
+.pestanas{ display:flex; gap:8px; margin:0 0 16px; }
+.pestanas button{ flex:1; min-height:52px; border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); font-weight:700; font-size:16px; }
 .pestanas button[aria-pressed="true"]{ background:var(--tinta); color:var(--amarillo); }
 .drop{ border:3px dashed var(--tinta); border-radius:12px; padding:22px 16px; text-align:center; background:var(--amarillo-claro); }
 .drop input{ display:block; margin:12px auto 0; max-width:100%; font-size:16px; }
@@ -100,6 +100,21 @@ td.n, th.n{ text-align:right; }
 .suave{ color:var(--suave); font-size:15px; }
 details{ margin-top:12px; } summary{ cursor:pointer; font-weight:700; min-height:44px; display:flex; align-items:center; }
 .espacio{ height:22px; }
+.pers{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:0 0 14px; }
+.pers button{ min-height:48px; border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); font-weight:700; font-size:16px; padding:4px; }
+.pers button[aria-pressed="true"]{ background:var(--amarillo); }
+.pers.cinco{ grid-template-columns:repeat(5,1fr); }
+.kpis{ display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin:14px 0; }
+.kpi{ border:2px solid var(--tinta); border-radius:10px; padding:10px 12px; background:var(--blanco); }
+.kpi b{ display:block; font-size:28px; line-height:1.1; }
+.kpi span{ font-size:14px; color:var(--suave); }
+.ayuda{ background:var(--amarillo-claro); border:2px solid var(--tinta); border-radius:10px; padding:10px 14px; font-size:15px; margin:14px 0; }
+.ayuda p{ margin:6px 0; }
+.rango{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin:0 0 14px; }
+.rango label{ display:block; font-size:14px; color:var(--suave); }
+.rango input{ font-size:17px; min-height:46px; border:2px solid var(--tinta); border-radius:8px; padding:4px 8px; }
+.tardio{ color:var(--baja); font-weight:700; }
+.scroll{ overflow-x:auto; }
 </style>
 </head>
 <body>
@@ -125,7 +140,7 @@ var URL_SERVICIO = 'https://script.google.com/macros/s/AKfycbywMYu2_J6dUi_MiZAar
 var CLAVE_SESION = 'lnt-personal-sesion';
 var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 var DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-var S = { token: '', paso: 'acceso', tab: 'lista', msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:00','21:30','00:30'], vista: null, enviando: '' };
+var S = { token: '', paso: 'acceso', tab: 'lista', msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:00','21:30','00:30'], vista: null, enviando: '', hoy: '', inf: { per: 'semana', ref: '', desde: '', hasta: '', r: null, cargando: false, aviso: false, ayuda: true, env: false } };
 
 function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
 function pad(n){ return (n < 10 ? '0' : '') + n; }
@@ -286,15 +301,144 @@ function vistaRegistro(){
   h += '<section class="caja"><h2>Resumen del mes por persona</h2><table><thead><tr><th>Persona</th><th class="n">Días</th><th class="n">Turnos</th></tr></thead><tbody>' + filas.map(function(x){ return '<tr><td>' + esc(x.n) + '</td><td class="n">' + Object.keys(x.dias).length + '</td><td class="n">' + x.turnos + '</td></tr>'; }).join('') + '</tbody></table></section>';
   return h;
 }
+
+/* ---------- Informes por periodo (solo Jorge) ---------- */
+function isoMas(iso, n){ var p = iso.split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)); return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()); }
+function lunesDe(iso){ var p = iso.split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])), w = (d.getUTCDay() + 6) % 7; return isoMas(iso, -w); }
+function fechaDM(iso){ var p = iso.split('-'); return +p[2] + '/' + +p[1] + '/' + p[0]; }
+function periodoDe(per, ref){
+  var p = ref.split('-'), y = +p[0], m = +p[1];
+  if (per === 'dia') return { desde: ref, hasta: ref };
+  if (per === 'semana'){ var l = lunesDe(ref); return { desde: l, hasta: isoMas(l, 6) }; }
+  if (per === 'mes'){ var u = new Date(Date.UTC(y, m, 0)).getUTCDate(); return { desde: y + '-' + pad(m) + '-01', hasta: y + '-' + pad(m) + '-' + pad(u) }; }
+  return { desde: y + '-01-01', hasta: y + '-12-31' };
+}
+function moverRef(per, ref, n){
+  if (per === 'dia') return isoMas(ref, n);
+  if (per === 'semana') return isoMas(ref, 7 * n);
+  var p = ref.split('-'), d = new Date(Date.UTC(+p[0] + (per === 'anio' ? n : 0), +p[1] - 1 + (per === 'mes' ? n : 0), 1));
+  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-01';
+}
+function etiquetaPeriodo(per, d, h){
+  if (per === 'dia') return mayus(fechaCorta(d)) + ' ' + d.slice(0, 4);
+  if (per === 'mes') return mesTexto(d.slice(0, 7));
+  if (per === 'anio') return 'Año ' + d.slice(0, 4);
+  return 'Del ' + fechaDM(d) + ' al ' + fechaDM(h);
+}
+function pct(a, b){ return b ? Math.round(a / b * 100) + ' %' : '–'; }
+function signo(n){ return (n > 0 ? '+' : '') + String(n).replace('.', ','); }
+function ajustarPeriodo(){
+  var I = S.inf; if (!S.hoy) return;
+  if (!I.ref) I.ref = S.hoy;
+  if (I.per !== 'rango'){ var q = periodoDe(I.per, I.ref); I.desde = q.desde; I.hasta = q.hasta; }
+  else { if (!I.desde) I.desde = isoMas(S.hoy, -29); if (!I.hasta) I.hasta = S.hoy; }
+}
+async function cargarInforme(){
+  var I = S.inf; ajustarPeriodo(); I.r = null; I.cargando = true; S.msg = null; pintar();
+  try { I.r = await pedir('asistenciaRango', { desde: I.desde, hasta: I.hasta }); }
+  catch (e){ if (e.codigo === 'SESION'){ caducada(); } else S.msg = { texto: e.message }; }
+  I.cargando = false; pintar();
+}
+function vistaInformes(){
+  var I = S.inf, h = '', r = I.r, per = I.per;
+  var nombres = [['dia','Día'],['semana','Semana'],['mes','Mes'],['anio','Año'],['rango','Rango']];
+  h += '<div class="pers cinco" role="group" aria-label="Periodo">' + nombres.map(function(x){ return '<button type="button" data-act="per" data-p="' + x[0] + '" aria-pressed="' + (per === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>';
+  if (per === 'rango'){
+    h += '<div class="rango"><div><label for="r-desde">Desde</label><input type="date" id="r-desde" value="' + esc(I.desde) + '" max="' + esc(S.hoy) + '"></div><div><label for="r-hasta">Hasta</label><input type="date" id="r-hasta" value="' + esc(I.hasta) + '" max="' + esc(S.hoy) + '"></div><button type="button" class="btn chico" data-act="ver">Ver informe</button></div>';
+  } else {
+    var ultimo = I.hasta >= S.hoy;
+    h += '<div class="mes"><button type="button" class="btn chico" data-act="mover" data-n="-1" aria-label="Periodo anterior">←</button><b>' + esc(etiquetaPeriodo(per, I.desde, I.hasta)) + '</b><button type="button" class="btn chico" data-act="mover" data-n="1" aria-label="Periodo siguiente"' + (ultimo ? ' disabled' : '') + '>→</button></div>';
+    if (per === 'semana') h += '<p class="suave" style="margin:-6px 0 12px">Del ' + esc(fechaDM(I.desde)) + ' al ' + esc(fechaDM(I.hasta)) + '</p>';
+  }
+  if (S.msg && S.msg.ok) h += '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>'; else if (S.msg && S.msg.texto) h += '<p class="msg mal" role="alert">' + esc(S.msg.texto) + '</p>';
+  h += '<details class="ayuda"' + (I.ayuda ? ' open' : '') + ' id="ayuda-inf"><summary>Cómo leer este informe</summary>' +
+    '<p><b>Llegadas:</b> cada vez que el responsable de sala marca a alguien en un turno cuenta como una llegada. Si una persona entra en dos turnos el mismo día son dos llegadas.</p>' +
+    '<p><b>Tarde:</b> llegó más de ' + ((r && r.toleranciaMin) || 5) + ' minutos después de la hora del turno (17:00, 21:30 o 00:30). Hasta esos minutos se considera a tiempo.</p>' +
+    '<p><b>Diferencia media:</b> minutos de media respecto a la hora del turno. Con signo «+» llega después, con «−» llega antes.</p>' +
+    '<p><b>Sin ningún registro:</b> personas autorizadas que no aparecen ni una vez en el periodo.</p>' +
+    '<p>Si el periodo llega hasta hoy o más allá, el informe se corta en el día de servicio actual. Máximo 370 días.</p></details>';
+  if (I.cargando) return h + '<section class="caja"><p class="suave" style="margin:0">Preparando el informe…</p></section>';
+  if (!r) return h + '<section class="caja"><p class="suave" style="margin:0">Elige un periodo para ver el informe.</p></section>';
+  var t = r.totales;
+  if (!t.registros){
+    return h + '<section class="caja"><p style="margin:0"><b>No hay llegadas registradas en este periodo</b> (' + esc(fechaDM(r.desde)) + ' – ' + esc(fechaDM(r.hasta)) + ').</p>' + (r.sinRegistro.length ? '<p class="suave">Personas autorizadas: ' + r.sinRegistro.length + '.</p>' : '') + '</section>';
+  }
+  h += '<section class="caja"><h2>Resumen · ' + esc(fechaDM(r.desde)) + ' – ' + esc(fechaDM(r.hasta)) + '</h2><div class="kpis">' +
+    '<div class="kpi"><b>' + t.registros + '</b><span>llegadas registradas</span></div>' +
+    '<div class="kpi"><b>' + t.personas + '</b><span>personas distintas</span></div>' +
+    '<div class="kpi"><b>' + t.dias + '</b><span>días con registro (de ' + r.diasPeriodo + ')</span></div>' +
+    '<div class="kpi"><b>' + pct(t.tarde, t.registros) + '</b><span>llegaron tarde (' + t.tarde + ')</span></div></div>' +
+    '<p class="suave" style="margin:0">Diferencia media con la hora del turno: <b>' + esc(signo(t.mediaDif)) + ' min</b>.</p>' +
+    '<div class="botones"><button type="button" class="btn" data-act="xlsx">Descargar Excel</button><button type="button" class="btn claro" data-act="correo"' + (I.env ? ' disabled' : '') + '>' + (I.env ? 'Enviando…' : 'Enviar por correo') + '</button></div></section><div class="espacio"></div>';
+  h += '<section class="caja"><h2>Por turno</h2><table><thead><tr><th>Turno</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Tarde</th></tr></thead><tbody>' +
+    r.porTurno.map(function(x){ return '<tr><td><b>' + esc(x.turno) + '</b></td><td class="n">' + x.registros + '</td><td class="n">' + x.personas + '</td><td class="n">' + x.tarde + (x.registros ? ' <span class="suave">(' + pct(x.tarde, x.registros) + ')</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></section><div class="espacio"></div>';
+  h += '<section class="caja"><h2>Por persona</h2><div class="scroll"><table><thead><tr><th>Persona</th><th class="n">Días</th><th class="n">Turnos</th><th class="n">Tarde</th><th class="n">Media (min)</th><th class="n">Máx. tarde</th></tr></thead><tbody>' +
+    r.porPersona.map(function(x){ return '<tr><td>' + esc(x.n) + '</td><td class="n">' + x.dias + '</td><td class="n">' + x.turnos + '</td><td class="n' + (x.tarde ? ' tardio' : '') + '">' + x.tarde + '</td><td class="n">' + esc(signo(x.media)) + '</td><td class="n">' + (x.maxTarde ? esc(signo(x.maxTarde)) : '–') + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
+  if (r.sinRegistro.length) h += '<div class="espacio"></div><section class="caja"><h2>Sin ningún registro · ' + r.sinRegistro.length + '</h2><p class="suave">Autorizadas que no han llegado ni una vez en este periodo.</p>' + chips(r.sinRegistro) + '</section>';
+  if (r.diasPeriodo > 7 && r.porSemana.length > 1) h += '<div class="espacio"></div><section class="caja"><h2>Por semana</h2><table><thead><tr><th>Semana del</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Días</th></tr></thead><tbody>' + r.porSemana.map(function(s){ return '<tr><td>' + esc(fechaDM(s.desde)) + '</td><td class="n">' + s.registros + '</td><td class="n">' + s.personas + '</td><td class="n">' + s.dias + '</td></tr>'; }).join('') + '</tbody></table></section>';
+  if (r.diasPeriodo > 31 && r.porMes.length > 1) h += '<div class="espacio"></div><section class="caja"><h2>Por mes</h2><table><thead><tr><th>Mes</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Días</th></tr></thead><tbody>' + r.porMes.map(function(s){ return '<tr><td>' + esc(mesTexto(s.mes)) + '</td><td class="n">' + s.registros + '</td><td class="n">' + s.personas + '</td><td class="n">' + s.dias + '</td></tr>'; }).join('') + '</tbody></table></section>';
+  if (r.detalle.length && r.diasPeriodo <= 62) h += '<div class="espacio"></div><section class="caja"><details><summary>Ver cada llegada (' + r.detalle.length + ')</summary><div class="scroll"><table><thead><tr><th>Fecha</th><th>Turno</th><th>Persona</th><th class="n">Hora</th><th class="n">Dif.</th></tr></thead><tbody>' + r.detalle.map(function(x){ return '<tr><td>' + esc(fechaDM(x[0])) + '</td><td>' + esc(x[1]) + '</td><td>' + esc(x[2]) + '</td><td class="n">' + esc(x[3]) + '</td><td class="n' + (x[4] > r.toleranciaMin ? ' tardio' : '') + '">' + esc(signo(x[4])) + '</td></tr>'; }).join('') + '</tbody></table></div></details></section>';
+  else if (r.detalle.length) h += '<p class="suave" style="margin-top:14px">El detalle de cada llegada (' + r.detalle.length + ') va en el Excel.</p>';
+  return h;
+}
+/* Excel (.xlsx) construido aquí mismo con JSZip */
+function xmlEsc(s){ return String(s).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); }
+function colLetra(i){ var s = ''; i++; while (i > 0){ var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+function hojaXml(filas, anchos){
+  var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>' +
+    anchos.map(function(a, i){ return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + a + '" customWidth="1"/>'; }).join('') + '</cols><sheetData>';
+  filas.forEach(function(f, ri){
+    x += '<row r="' + (ri + 1) + '">';
+    f.forEach(function(v, ci){
+      var ref = colLetra(ci) + (ri + 1), est = ri === 0 ? ' s="1"' : '';
+      if (typeof v === 'number') x += '<c r="' + ref + '"' + est + '><v>' + v + '</v></c>';
+      else x += '<c r="' + ref + '"' + est + ' t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(v) + '</t></is></c>';
+    });
+    x += '</row>';
+  });
+  return x + '</sheetData></worksheet>';
+}
+async function construirXlsx(r){
+  if (typeof JSZip === 'undefined') throw new Error('No se ha podido cargar el generador de Excel. Recarga la página.');
+  var z = new JSZip(), t = r.totales;
+  var res = [['Persona', 'Días', 'Turnos', 'Llegadas tarde', 'Diferencia media (min)', 'Máx. tarde (min)']].concat(r.porPersona.map(function(x){ return [x.n, x.dias, x.turnos, x.tarde, x.media, x.maxTarde]; }));
+  res.push([]); res.push(['Periodo', fechaDM(r.desde) + ' - ' + fechaDM(r.hasta)]); res.push(['Llegadas', t.registros]); res.push(['Personas distintas', t.personas]); res.push(['Días con registro', t.dias]); res.push(['Llegadas tarde (más de ' + r.toleranciaMin + ' min)', t.tarde]);
+  if (r.sinRegistro.length) res.push(['Sin ningún registro', r.sinRegistro.join(', ')]);
+  var det = [['Fecha', 'Turno', 'Persona', 'Hora de llegada', 'Diferencia (min)']].concat(r.detalle.map(function(x){ return [fechaDM(x[0]), x[1], x[2], x[3], x[4]]; }));
+  var tur = [['Turno', 'Llegadas', 'Personas', 'Tarde']].concat(r.porTurno.map(function(x){ return [x.turno, x.registros, x.personas, x.tarde]; }));
+  z.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>');
+  z.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+  z.file('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Por persona" sheetId="1" r:id="rId1"/><sheet name="Por turno" sheetId="2" r:id="rId2"/><sheet name="Detalle" sheetId="3" r:id="rId3"/></sheets></workbook>');
+  z.file('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
+  z.file('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFD400"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>');
+  z.file('xl/worksheets/sheet1.xml', hojaXml(res, [30, 22, 10, 16, 22, 18]));
+  z.file('xl/worksheets/sheet2.xml', hojaXml(tur, [12, 12, 12, 12]));
+  z.file('xl/worksheets/sheet3.xml', hojaXml(det, [14, 10, 30, 16, 18]));
+  return z.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+async function descargarXlsx(){
+  var r = S.inf.r; if (!r) return;
+  try {
+    var blob = await construirXlsx(r), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'asistencia_' + r.desde + '_' + r.hasta + '.xlsx'; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  } catch (e){ S.msg = { texto: e.message }; pintar(); }
+}
+async function correoInforme(){
+  var I = S.inf, r = I.r; if (!r) return; I.env = true; S.msg = null; pintar();
+  try { var j = await pedir('asistenciaInformeRango', { desde: r.desde, hasta: r.hasta }); S.msg = { ok: 'Informe enviado a ' + j.a + ' con el detalle adjunto.' }; }
+  catch (e){ if (e.codigo === 'SESION') caducada(); else S.msg = { texto: e.message }; }
+  I.env = false; pintar(); window.scrollTo(0, 0);
+}
 function vistaPanel(){
   return '<div class="arriba"><span>Hola, Jorge</span><button type="button" class="btn chico" data-act="salir">Salir</button></div>' +
-    '<div class="pestanas" role="group"><button type="button" data-act="tab" data-t="lista" aria-pressed="' + (S.tab === 'lista') + '">Lista autorizada</button><button type="button" data-act="tab" data-t="registro" aria-pressed="' + (S.tab === 'registro') + '">Quién ha venido</button></div>' +
-    (S.tab === 'lista' ? (S.msg && S.msg.ok ? '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>' : '') + vistaLista() : vistaRegistro());
+    '<div class="pestanas" role="group"><button type="button" data-act="tab" data-t="lista" aria-pressed="' + (S.tab === 'lista') + '">Lista autorizada</button><button type="button" data-act="tab" data-t="registro" aria-pressed="' + (S.tab === 'registro') + '">Quién ha venido</button><button type="button" data-act="tab" data-t="informes" aria-pressed="' + (S.tab === 'informes') + '">Informes</button></div>' +
+    (S.tab === 'lista' ? (S.msg && S.msg.ok ? '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>' : '') + vistaLista() : S.tab === 'informes' ? vistaInformes() : vistaRegistro());
 }
 function pintar(){
   var app = document.getElementById('app'), foco = document.activeElement && document.activeElement.id;
   app.innerHTML = S.paso === 'acceso' ? vistaAcceso() : vistaPanel();
-  document.getElementById('quien').textContent = S.paso === 'acceso' ? 'Solo para Jorge' : (S.tab === 'lista' ? 'Quién puede entrar a trabajar' : 'Asistencia por día');
+  document.getElementById('quien').textContent = S.paso === 'acceso' ? 'Solo para Jorge' : (S.tab === 'lista' ? 'Quién puede entrar a trabajar' : S.tab === 'informes' ? 'Informes de asistencia' : 'Asistencia por día');
   if (foco && foco !== 'archivo'){ var e = document.getElementById(foco); if (e && e.focus){ try { e.focus(); } catch (x){} } }
 }
 
@@ -302,7 +446,7 @@ function pintar(){
 function caducada(){ guardarSesion(null); S.token = ''; S.paso = 'acceso'; S.msg = { texto: 'Tu acceso ha caducado. Escribe tu código otra vez.' }; S.vista = null; }
 async function cargarMes(mes){
   var j = await pedir('personalLeer', mes ? { mes: mes } : {});
-  S.mes = j.mes; S.dias = j.dias || {}; S.turnos = j.turnos || S.turnos; S.lista = j.lista || S.lista; S.paso = 'panel';
+  S.hoy = j.dia || S.hoy; S.mes = j.mes; S.dias = j.dias || {}; S.turnos = j.turnos || S.turnos; S.lista = j.lista || S.lista; S.paso = 'panel';
 }
 async function entrar(codigo){
   S.cargando = true; S.msg = null; pintar();
@@ -342,10 +486,17 @@ async function informe(f){
   S.enviando = ''; pintar(); window.scrollTo(0, 0);
 }
 document.addEventListener('submit', function(ev){ ev.preventDefault(); if (ev.target.id === 'f-acceso'){ var c = document.getElementById('codigo').value.trim(); if (!c){ S.msg = { texto: 'Escribe tu código.' }; pintar(); return; } entrar(c); } });
+document.addEventListener('toggle', function(ev){ if (ev.target && ev.target.id === 'ayuda-inf') S.inf.ayuda = ev.target.open; }, true);
 document.addEventListener('change', function(ev){ if (ev.target.id === 'archivo') archivoElegido(ev.target.files && ev.target.files[0]); });
 document.addEventListener('click', function(ev){
   var b = ev.target.closest && ev.target.closest('[data-act]'); if (!b) return; var a = b.dataset.act;
   if (a === 'salir'){ guardarSesion(null); S.token = ''; S.paso = 'acceso'; S.msg = null; S.vista = null; pintar(); }
+  else if (a === 'tab' && b.dataset.t === 'informes'){ S.tab = 'informes'; S.msg = null; ajustarPeriodo(); if (S.inf.r) pintar(); else cargarInforme(); }
+  else if (a === 'per'){ S.inf.per = b.dataset.p; S.inf.r = null; if (S.inf.per !== 'rango'){ S.inf.ref = S.hoy; } ajustarPeriodo(); if (S.inf.per === 'rango'){ S.msg = null; pintar(); } else cargarInforme(); }
+  else if (a === 'mover'){ S.inf.ref = moverRef(S.inf.per, S.inf.ref, +b.dataset.n); cargarInforme(); }
+  else if (a === 'ver'){ var d1 = document.getElementById('r-desde').value, d2 = document.getElementById('r-hasta').value; if (!d1 || !d2){ S.msg = { texto: 'Elige las dos fechas.' }; pintar(); return; } if (d1 > d2){ S.msg = { texto: 'La fecha de inicio es posterior a la de fin.' }; pintar(); return; } S.inf.desde = d1; S.inf.hasta = d2; cargarInforme(); }
+  else if (a === 'xlsx') descargarXlsx();
+  else if (a === 'correo') correoInforme();
   else if (a === 'tab'){ S.tab = b.dataset.t; S.msg = null; pintar(); cargarMes(S.mes).then(pintar, function(e){ if (e.codigo === 'SESION'){ caducada(); pintar(); } }); }
   else if (a === 'descartar'){ S.vista = null; pintar(); }
   else if (a === 'aplicar') aplicar();
