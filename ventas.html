@@ -288,6 +288,38 @@ button{ cursor:pointer; }
 .nw{ white-space:nowrap; }
 
 
+
+/* ---------- Simulaciones ---------- */
+.sim-aviso{ border:2px dashed var(--tinta); border-radius:10px; padding:10px 14px; background:var(--amarillo-claro); font-size:15px; margin:0 0 16px; }
+.sim-lista{ list-style:none; margin:10px 0 0; padding:0; border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); overflow:hidden; }
+.sim-lista li{ border-bottom:1px solid var(--linea); } .sim-lista li:last-child{ border-bottom:0; }
+.sim-lista button{ width:100%; text-align:left; background:none; border:0; padding:10px 14px; min-height:48px; display:flex; justify-content:space-between; gap:12px; align-items:center; }
+.sim-lista button:hover{ background:var(--amarillo-claro); }
+.sim-lista small{ color:var(--suave); white-space:nowrap; }
+.sim-linea{ border:2px solid var(--tinta); border-radius:12px; background:var(--blanco); padding:14px 16px; margin:0 0 14px; box-shadow:3px 3px 0 var(--tinta); }
+.sim-cab{ display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.sim-cab b{ font-size:18px; overflow-wrap:anywhere; } .sim-cab small{ display:block; color:var(--suave); font-weight:400; }
+.sim-campos{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:12px 0 8px; }
+@media (max-width:480px){ .sim-campos{ grid-template-columns:1fr; } }
+.sim-campos label{ display:block; font-weight:700; font-size:14px; margin:0 0 4px; }
+.sim-rapido{ display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+.sim-rapido button{ border:2px solid var(--tinta); background:var(--blanco); border-radius:999px; padding:4px 12px; min-height:36px; font-weight:500; }
+.sim-rapido button:hover{ background:var(--amarillo-claro); }
+.sim-dato{ font-size:15px; margin:6px 0 0; } .sim-dato b{ font-weight:700; }
+.sim-dato.eq{ padding:8px 12px; border-radius:8px; background:var(--sube-bg); color:var(--sube); border:1.5px solid #9DC7B4; font-size:15.5px; }
+.sim-linea details{ margin-top:10px; } .sim-linea summary{ cursor:pointer; font-weight:700; min-height:40px; display:flex; align-items:center; }
+.sim-tabla{ border-collapse:collapse; width:100%; font-size:14.5px; margin:6px 0; }
+.sim-tabla th, .sim-tabla td{ padding:6px 8px; border-bottom:1px solid var(--linea); text-align:right; white-space:nowrap; }
+.sim-tabla th:first-child, .sim-tabla td:first-child{ text-align:left; }
+.sim-tabla th{ color:var(--suave); font-weight:500; font-size:13px; }
+.sim-tabla tr.act td{ background:var(--amarillo-claro); font-weight:700; }
+.sim-tabla .mas{ color:var(--sube); } .sim-tabla .menos{ color:var(--baja); }
+.sim-slider{ width:100%; accent-color:#1C1A12; margin:8px 0 2px; min-height:36px; }
+.sim-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:14px 0; }
+.sim-kpi{ border:2px solid var(--tinta); border-radius:10px; padding:12px 14px; background:var(--blanco); }
+.sim-kpi small{ display:block; color:var(--suave); }
+.sim-kpi b{ display:block; font-size:24px; letter-spacing:-.01em; } .sim-kpi b.mas{ color:var(--sube); } .sim-kpi b.menos{ color:var(--baja); }
+.sim-kpi span{ font-size:14px; color:var(--suave); }
 </style>
 </head>
 <body>
@@ -643,6 +675,91 @@ function lectura(m, a, comp, p, nombres){
   return out;
 }
 
+/* ---------- Simulaciones de precio (solo cálculo: no cambian ningún dato) ---------- */
+var SIM = { UMBRAL: 0.03, PERSISTE: 4, PLANO: 1.02, MIN_DIAS: 7 };
+/* Tramos de precio de un producto: periodos seguidos en los que se vendió al mismo precio.
+   Un cambio solo cuenta si el nuevo precio se mantiene (≥ 4 días seguidos, casi iguales) y se aparta más de un 3 % del anterior;
+   así no se confunde una subida con una promoción de un día o con el reparto entre centros. */
+function historialPrecio(m, k){
+  var serie = [], tot = {}, i;
+  m.fechas.forEach(function(f){
+    var u = 0, c = 0, tu = 0;
+    m.dias[f].filas.forEach(function(r){
+      if (r.ex) return;
+      var su = 0, sc = 0; for (i = 0; i < r.u.length; i++){ su += r.u[i]; sc += r.c[i]; }
+      tu += su; if (r.k === k){ u += su; c += sc; }
+    });
+    tot[f] = { u: u, tu: tu };
+    if (u > 0 && c > 0) serie.push({ f: f, u: u, c: c, p: c / u });
+  });
+  var grupos = [], cur = null, pend = [];
+  var ref = function(g){ var u = 0, c = 0; g.dias.forEach(function(d){ u += d.u; c += d.c; }); return c / u; };
+  serie.forEach(function(d){
+    if (!cur){ cur = { dias: [d] }; grupos.push(cur); return; }
+    var r = ref(cur);
+    if (Math.abs(d.p / r - 1) > SIM.UMBRAL){
+      pend.push(d);
+      var n = 1; while (n < pend.length && Math.max(pend[pend.length - 1 - n].p, d.p) / Math.min(pend[pend.length - 1 - n].p, d.p) <= SIM.PLANO) n++;
+      if (n >= SIM.PERSISTE){ pend.slice(0, pend.length - n).forEach(function(x){ cur.dias.push(x); }); cur = { dias: pend.slice(pend.length - n) }; grupos.push(cur); pend = []; }
+    } else { pend.forEach(function(x){ cur.dias.push(x); }); pend = []; cur.dias.push(d); }
+  });
+  pend.forEach(function(x){ if (cur) cur.dias.push(x); });
+  var tramos = grupos.map(function(g, j){
+    var desde = g.dias[0].f, sig = grupos[j + 1] ? grupos[j + 1].dias[0].f : null, u = 0, c = 0, nd = 0, uTot = 0, tu = 0;
+    g.dias.forEach(function(d){ u += d.u; c += d.c; });
+    m.fechas.forEach(function(f){ if (f >= desde && (!sig || f < sig)){ nd++; uTot += tot[f].u; tu += tot[f].tu; } });
+    return { desde: desde, hasta: sig ? sumarDias(sig, -1) : m.fechas[m.fechas.length - 1], diasConVenta: g.dias.length, dias: nd, u: u, precio: c / u, uDia: nd ? uTot / nd : 0, cuota: tu ? uTot / tu : 0 };
+  });
+  var efectos = [];
+  for (var j = 1; j < tramos.length; j++){
+    var A = tramos[j - 1], B = tramos[j];
+    if (A.dias < SIM.MIN_DIAS || B.dias < SIM.MIN_DIAS || !(A.cuota > 0)) continue;
+    var dp = B.precio / A.precio - 1, dq = B.cuota / A.cuota - 1;
+    efectos.push({ de: A.precio, a: B.precio, desde: B.desde, dp: dp * 100, dCuota: dq * 100, elast: dq / dp, peso: Math.min(A.dias, B.dias) });
+  }
+  var sp = 0, sw = 0; efectos.forEach(function(e){ sp += e.elast * e.peso; sw += e.peso; });
+  return { tramos: tramos, efectos: efectos, elasticidad: sw ? sp / sw : null, ultimoPrecio: tramos.length ? tramos[tramos.length - 1].precio : null };
+}
+/* Pérdida de unidades que sugiere el historial para una subida de precio (en %). null si no hay cambios de precio para aprender. */
+function perdidaHistorica(hist, P0, P1){
+  if (!hist || hist.elasticidad === null || !(P0 > 0)) return null;
+  var rp = (P1 / P0 - 1) * 100, e = hist.elasticidad;
+  if (rp <= 0) return null;
+  return Math.max(0, Math.min(100, -e * rp));
+}
+/* Punto de partida de un producto en una ventana: precio actual, unidades al año y proveniencia */
+function baseProducto(a, hist, k){
+  var p = a.prods[k]; if (!p || !a.fechas.length) return null;
+  var span = isoNum(a.fechas[a.fechas.length - 1]) - isoNum(a.fechas[0]) + 1;
+  var P0 = hist && hist.ultimoPrecio ? hist.ultimoPrecio : (p.u ? p.c / p.u : 0);
+  return { k: k, n: p.n, cat: p.cat, P0: P0, U: p.u * 365 / span, uDia: p.u / a.fechas.length, uVent: p.u, dias: a.fechas.length, span: span };
+}
+/* L: { P0, P1, U (unidades/año), C (coste o null), perd (% de unidades que se pierden) } → cifras anuales en céntimos */
+function simularLinea(L){
+  var perd = Math.max(0, Math.min(100, L.perd || 0)), U1 = L.U * (1 - perd / 100), tieneC = L.C !== null && L.C !== undefined && isFinite(L.C);
+  var r = { U0: L.U, U1: U1, R0: L.U * L.P0, R1: U1 * L.P1 };
+  r.dR = r.R1 - r.R0;
+  r.eqR = L.P1 > 0 ? (1 - L.P0 / L.P1) * 100 : null;
+  r.M0 = r.M1 = r.dM = r.eqM = null;
+  if (tieneC){
+    r.M0 = L.U * (L.P0 - L.C); r.M1 = U1 * (L.P1 - L.C); r.dM = r.M1 - r.M0;
+    if (L.P0 > L.C && L.P1 > L.C) r.eqM = (1 - (L.P0 - L.C) / (L.P1 - L.C)) * 100;
+  }
+  return r;
+}
+function simularConjunto(lineas, perdGlobal){
+  var t = { R0: 0, R1: 0, dR: 0, dM: 0, conCoste: 0, n: lineas.length, lineas: [] };
+  lineas.forEach(function(L){
+    var x = simularLinea({ P0: L.P0, P1: L.P1, U: L.U, C: L.C, perd: L.perd == null ? perdGlobal : L.perd });
+    t.R0 += x.R0; t.R1 += x.R1; t.dR += x.dR; if (x.dM !== null){ t.dM += x.dM; t.conCoste++; }
+    t.lineas.push(x);
+  });
+  return t;
+}
+function tablaEscenarios(lineas, perdidas){
+  return perdidas.map(function(p){ var t = simularConjunto(lineas.map(function(L){ return { P0: L.P0, P1: L.P1, U: L.U, C: L.C, perd: p }; }), p); return { perd: p, dR: t.dR, dM: t.conCoste ? t.dM : null, conCoste: t.conCoste, R1: t.R1 }; });
+}
+
 return {
   CFG: CFG, fmtNum: fmtNum, fmtEur: fmtEur, fmtEurEnt: fmtEurEnt, fmtPct: fmtPct, pctVar: pctVar,
   claveProducto: claveProducto, limpiarNombre: limpiarNombre, titulo: titulo, nombreCentro: nombreCentro, cmpTexto: cmpTexto,
@@ -653,6 +770,7 @@ return {
   agregar: agregar, ordenar: ordenar, ranking: ranking, lista: lista, entradasPorProveedor: entradasPorProveedor, listaMusicos: listaMusicos, proveedoresConocidos: proveedoresConocidos,
   ultimaFecha: ultimaFecha, primeraFecha: primeraFecha, cargados: cargados, resolverPeriodo: resolverPeriodo, periodoComparable: periodoComparable,
   serieDiaria: serieDiaria, mediaPorDiaSemana: mediaPorDiaSemana,
+  historialPrecio: historialPrecio, perdidaHistorica: perdidaHistorica, baseProducto: baseProducto, simularLinea: simularLinea, simularConjunto: simularConjunto, tablaEscenarios: tablaEscenarios,
   llamadaMin: llamadaMin, llamadaDudosa: llamadaDudosa, fmtLlamada: fmtLlamada, crearServicio: crearServicio, servicioPeriodo: servicioPeriodo, servicioSerie: servicioSerie, servicioPorDiaSemana: servicioPorDiaSemana, diasSinDatos: diasSinDatos, lectura: lectura, frenteA: frenteA
 };
 })();
@@ -715,7 +833,8 @@ var S = {
   metrica: 'u', listaMovil: 'Platos principales',
   evo: { vent: 30, met: 'c', desg: 'total', sel: null, todos: false },
   prod: { cat: 'Todas', sub: 'Todas', q: '', orden: 'u' },
-  sv: null, svInfo: null, srv: { sel: null, todos: false, clave: '', serie: [] }
+  sv: null, svInfo: null, srv: { sel: null, todos: false, clave: '', serie: [] },
+  sim: { vent: 90, q: '', items: [], perd: 10, hist: {} }
 };
 
 /* ---------- utilidades ---------- */
@@ -1150,6 +1269,133 @@ function repintarListaProductos(){
   var c = document.getElementById('lista-prod'); if (c) c.innerHTML = listaProductos(a, ac).html;
 }
 
+/* ============================== SIMULACIONES ============================== */
+var SIM_COSTES = 'ventas_sim_costes_v1';
+function simCostes(){ try { var o = JSON.parse(localStorage.getItem(SIM_COSTES) || '{}'); return o && typeof o === 'object' ? o : {}; } catch (e){ return {}; } }
+function simGuardarCoste(k, c){ try { var o = simCostes(); if (c === null) delete o[k]; else o[k] = c; localStorage.setItem(SIM_COSTES, JSON.stringify(o)); } catch (e){} }
+function parseEur(s){ var t = String(s == null ? '' : s).replace(/\s|€/g, '').replace(',', '.'); if (!/^\d+(\.\d{1,4})?$/.test(t)) return null; var v = Math.round(parseFloat(t) * 100); return isFinite(v) ? v : null; }
+function eurIn(c){ return c === null || c === undefined ? '' : (c / 100).toFixed(2).replace('.', ','); }
+function signo(c, f){ f = f || T.fmtEurEnt; return (c > 0 ? '+' : (c < 0 ? '' : '')) + f(c); }
+function quitarTildes(s){ return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
+function redondeo5(c){ return Math.round(c / 5) * 5; }
+function simModelo(){ return S.mV || S.m; }
+function simVentana(){
+  var m = simModelo(), v = S.sim.vent, ult = T.ultimaFecha(m);
+  return m.fechas.filter(function(f){ return v === 'todo' || f >= T.sumarDias(ult, -(v - 1)); });
+}
+function simHist(k){ var m = simModelo(); if (!S.sim.hist[k]) S.sim.hist[k] = T.historialPrecio(m, k); return S.sim.hist[k]; }
+function simLineas(){
+  var m = simModelo(), a = T.agregar(m, simVentana()), out = [];
+  S.sim.items.forEach(function(it){
+    var hist = simHist(it.k), b = T.baseProducto(a, hist, it.k);
+    out.push({ it: it, base: b, hist: hist, L: b ? { P0: b.P0, P1: it.nuevo !== null ? it.nuevo : b.P0, U: b.U, C: it.coste, perd: it.perd } : null });
+  });
+  return { a: a, lineas: out };
+}
+function simBuscador(a){
+  var q = quitarTildes(S.sim.q.trim()), usados = {}; S.sim.items.forEach(function(i){ usados[i.k] = 1; });
+  var l = Object.keys(a.prods).map(function(k){ return a.prods[k]; }).filter(function(p){ return !usados[p.k] && p.c > 0 && (!q || quitarTildes(p.n).indexOf(q) >= 0); });
+  l.sort(function(x, y){ return (y.c - x.c) || (y.u - x.u); });
+  var vis = l.slice(0, 8);
+  if (!vis.length) return '<p class="sub-txt" style="margin:10px 0 0">' + (q ? 'No hay ningún producto con ese nombre vendido en este periodo.' : 'No quedan más productos con ventas en este periodo.') + '</p>';
+  return '<ul class="sim-lista" aria-label="' + (q ? 'Resultados' : 'Los más vendidos') + '">' + vis.map(function(p){
+    return '<li><button type="button" data-act="sim-add" data-v="' + esc(p.k) + '"><span>' + esc(bonito(p.n)) + '<br><small>' + esc(p.cat) + '</small></span><small>' + T.fmtNum(p.u) + ' uds · ' + T.fmtEurEnt(p.c) + ' · ' + T.fmtEur(p.c / p.u) + '/ud</small></button></li>'; }).join('') + '</ul>' +
+    (l.length > vis.length ? '<p class="sub-txt" style="margin:6px 0 0">Mostrando ' + vis.length + ' de ' + l.length + '. Escribe para afinar.</p>' : '');
+}
+function simLineaHtml(x){
+  var it = x.it, ix = S.sim.items.indexOf(x.it), b = x.base, h = '<div class="sim-linea" data-k="' + esc(it.k) + '"><div class="sim-cab"><div><b>' + esc(bonito(b ? b.n : it.k)) + '</b><small>' + esc(b ? b.cat : '') + '</small></div><button type="button" class="btn claro peq" data-act="sim-del" data-v="' + esc(it.k) + '">Quitar</button></div>';
+  if (!b) return h + '<p class="sim-dato">Este producto no tiene ventas en el periodo elegido. Elige un periodo más largo.</p></div>';
+  var L = x.L, P0 = b.P0, P1 = L.P1, r = T.simularLinea({ P0: L.P0, P1: L.P1, U: L.U, C: L.C, perd: 0 }), hist = x.hist;
+  h += '<p class="sim-dato">Ahora se vende a <b>' + T.fmtEur(P0) + '</b> · <b>' + T.fmtNum(b.uDia, 1) + '</b> uds. por día abierto (≈ ' + T.fmtNum(b.U) + ' al año) · ' + T.fmtEurEnt(b.U * P0) + ' al año</p>';
+  h += '<div class="sim-campos"><div><label for="n-' + esc(it.k) + '">Precio nuevo (€)</label><input class="campo" id="n-' + ix + '" inputmode="decimal" autocomplete="off" data-f="sim-nuevo" data-k="' + esc(it.k) + '" placeholder="' + esc(eurIn(P0)) + '" value="' + esc(eurIn(it.nuevo)) + '"></div>' +
+    '<div><label for="c-' + ix + '">Coste por unidad (€) · opcional</label><input class="campo" id="c-' + ix + '" inputmode="decimal" autocomplete="off" data-f="sim-coste" data-k="' + esc(it.k) + '" placeholder="Para ver el margen" value="' + esc(eurIn(it.coste)) + '"></div></div>';
+  h += '<div class="sim-rapido" role="group" aria-label="Subidas rápidas">' + [['+5 %', 'p5'], ['+10 %', 'p10'], ['+15 %', 'p15'], ['+0,50 €', 'e50'], ['+1 €', 'e100']].map(function(o){ return '<button type="button" data-act="sim-sube" data-k="' + esc(it.k) + '" data-v="' + o[1] + '">' + o[0] + '</button>'; }).join('') + '</div>';
+  if (it.nuevo === null || it.nuevo === P0) return h + '<p class="sim-dato">Escribe un precio nuevo o pulsa una subida rápida para ver el efecto.</p>' + simHistorialHtml(x) + '</div>';
+  var dp = (P1 / P0 - 1) * 100, dEur = P1 - P0;
+  h += '<p class="sim-dato">' + (dEur > 0 ? 'Subida' : 'Bajada') + ': <b>' + signo(dEur, T.fmtEur) + '</b> por unidad (<b>' + (dp > 0 ? '+' : '') + T.fmtPct(dp) + '</b>)</p>';
+  if (dEur > 0) h += '<p class="sim-dato eq">La subida compensa en <b>ingresos</b> mientras pierdas <b>menos del ' + T.fmtPct(r.eqR) + '</b> de las unidades (≈ ' + T.fmtNum(b.uDia * r.eqR / 100, 1) + ' uds. por día).</p>';
+  else h += '<p class="sim-dato eq" style="background:var(--amarillo-claro);color:#5C4400;border-color:var(--amarillo-borde)">Para no perder ingresos tendrías que vender <b>' + T.fmtPct(-r.eqR) + ' más</b> unidades.</p>';
+  if (it.coste !== null){
+    if (r.eqM !== null && dEur > 0) h += '<p class="sim-dato eq">Mirando el <b>margen</b> (coste ' + T.fmtEur(it.coste) + '), aguanta perder hasta el <b>' + T.fmtPct(r.eqM) + '</b> de las unidades. Con margen se puede perder más clientela que con ingresos, porque cada unidad que queda deja más.</p>';
+    else if (r.eqM === null) h += '<p class="sim-dato">El coste indicado es igual o mayor que el precio: no se puede calcular el punto de equilibrio del margen.</p>';
+  }
+  var est = T.perdidaHistorica(hist, P0, P1);
+  if (est !== null) h += '<p class="sim-dato">Según lo que pasó antes con este producto, una subida así podría hacerle perder <b>≈ ' + T.fmtPct(est) + '</b> de las unidades. <button type="button" class="btn claro peq" data-act="sim-usar" data-v="' + esc(it.k) + '">' + (it.perd !== null ? 'Usando ' + T.fmtPct(it.perd) + ' · quitar' : 'Usar esta estimación') + '</button></p>';
+  return h + simHistorialHtml(x) + '</div>';
+}
+function simHistorialHtml(x){
+  var hist = x.hist, h = '<details><summary>Lo que ya ha pasado con su precio</summary>';
+  if (!hist.tramos.length) return h + '<p class="sim-dato">No hay ventas suficientes para ver su historial de precios.</p></details>';
+  h += '<table class="sim-tabla"><thead><tr><th>Periodo</th><th>Precio</th><th>Uds./día</th><th>Cuota</th></tr></thead><tbody>' + hist.tramos.map(function(t){
+    return '<tr><td>' + esc(T.fmtDiaMes(t.desde) + ' – ' + T.fmtDiaMes(t.hasta)) + '</td><td>' + T.fmtEur(t.precio) + '</td><td>' + T.fmtNum(t.uDia, 1) + '</td><td>' + T.fmtPct(t.cuota * 100, 2) + '</td></tr>'; }).join('') + '</tbody></table>';
+  if (hist.tramos.length === 1) h += '<p class="sim-dato">En todo el periodo con datos se ha vendido al mismo precio: <b>no hay ninguna subida anterior de la que aprender</b>. El resultado depende solo de la pérdida de clientela que supongas.</p>';
+  else {
+    h += hist.efectos.map(function(e){ return '<p class="sim-dato">Pasó de ' + T.fmtEur(e.de) + ' a ' + T.fmtEur(e.a) + ' (' + (e.dp > 0 ? '+' : '') + T.fmtPct(e.dp) + ') el ' + esc(T.fmtFecha(e.desde)) + ': su cuota de las ventas del local cambió <b>' + (e.dCuota > 0 ? '+' : '') + T.fmtPct(e.dCuota) + '</b>.</p>'; }).join('');
+    h += '<p class="sim-dato" style="color:var(--suave)">La «cuota» es la parte de todas las unidades vendidas que era de este producto; así se descuenta que unos días entra más gente que otros. Es una pista, no una prueba: pueden influir la temporada, la carta u otras subidas.</p>';
+  }
+  return h + '</details>';
+}
+function simResultados(res){
+  var con = res.lineas.filter(function(x){ return x.L && x.L.P1 !== x.L.P0; });
+  if (!con.length) return '<p class="sub-txt">Escribe un precio nuevo en alguno de los productos para ver el resultado.</p>';
+  var Ls = con.map(function(x){ return x.L; }), perd = S.sim.perd, t = T.simularConjunto(Ls, perd), pct = t.R0 ? t.dR / t.R0 * 100 : 0;
+  var uPerd = 0, uAnio = 0; con.forEach(function(x){ var q = (x.it.perd === null ? perd : x.it.perd) / 100; uPerd += x.base.uDia * q; uAnio += x.base.U * q; });
+  var R0 = 0, R1u = 0; Ls.forEach(function(L){ R0 += L.U * L.P0; R1u += L.U * L.P1; });
+  var eqGlobal = R1u ? (1 - R0 / R1u) * 100 : null;
+  var h = '<div class="sim-kpis">' +
+    '<div class="sim-kpi"><small>Ingresos al año de estos productos</small><b>' + T.fmtEurEnt(t.R1) + '</b><span>ahora ' + T.fmtEurEnt(t.R0) + '</span></div>' +
+    '<div class="sim-kpi"><small>Diferencia en ingresos al año</small><b class="' + (t.dR >= 0 ? 'mas' : 'menos') + '">' + signo(t.dR) + '</b><span>' + (t.dR >= 0 ? '+' : '') + T.fmtPct(pct) + ' · ' + signo(t.dR / 12) + ' al mes</span></div>' +
+    (t.conCoste ? '<div class="sim-kpi"><small>Diferencia en margen al año' + (t.conCoste < t.n ? ' (' + t.conCoste + ' de ' + t.n + ' con coste)' : '') + '</small><b class="' + (t.dM >= 0 ? 'mas' : 'menos') + '">' + signo(t.dM) + '</b><span>' + signo(t.dM / 12) + ' al mes</span></div>' : '') +
+    '<div class="sim-kpi"><small>Unidades que dejarías de vender</small><b>' + T.fmtNum(uPerd, 1) + ' al día</b><span>≈ ' + T.fmtNum(uAnio) + ' al año</span></div></div>';
+  h += '<div class="aviso ' + (t.dR >= 0 ? 'ok' : 'err') + '">' + (t.dR >= 0 ? 'Si pierdes ese ' + T.fmtPct(perd, 0) + ' de las unidades, la subida te deja <b>' + T.fmtEurEnt(t.dR) + ' más al año</b> en ingresos' : 'Si pierdes ese ' + T.fmtPct(perd, 0) + ' de las unidades, la subida te hace <b>perder ' + T.fmtEurEnt(-t.dR) + ' al año</b> en ingresos') + (t.conCoste && t.dM !== null ? ' y ' + (t.dM >= 0 ? '<b>' + T.fmtEurEnt(t.dM) + ' más</b>' : '<b>' + T.fmtEurEnt(-t.dM) + ' menos</b>') + ' en margen' + (t.conCoste < t.n ? ' (solo de los productos con coste)' : '') : '') + '.</div>';
+  if (eqGlobal !== null && eqGlobal > 0) h += '<p class="sim-dato">Punto de equilibrio del conjunto: la subida compensa en ingresos mientras pierdas <b>menos del ' + T.fmtPct(eqGlobal) + '</b> de las unidades.</p>';
+  var tabla = T.tablaEscenarios(Ls, [0, 5, 10, 15, 20, 30, 40]), conM = tabla[0].dM !== null;
+  h += '<h3 style="margin:18px 0 6px;font-size:17px">Escenarios según la clientela que se pierda</h3><div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Pierdes</th><th>Ingresos al año</th>' + (conM ? '<th>Margen al año</th>' : '') + '</tr></thead><tbody>' + tabla.map(function(f){
+    return '<tr' + (f.perd === Math.round(perd) ? ' class="act"' : '') + '><td>' + f.perd + ' %</td><td class="' + (f.dR >= 0 ? 'mas' : 'menos') + '">' + signo(f.dR) + '</td>' + (conM ? '<td class="' + (f.dM >= 0 ? 'mas' : 'menos') + '">' + signo(f.dM) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table></div>';
+  return h;
+}
+function vistaSimulaciones(){
+  var m = simModelo(), sim = S.sim, res = simLineas(), v = sim.vent, ventanas = [[30, '30 días'], [90, '90 días'], [180, '180 días'], ['todo', 'Todo']];
+  var h = '<section class="bloque"><h2>Simulaciones de precio</h2><p class="sim-aviso"><b>Es solo una calculadora.</b> No cambia ningún precio ni ningún dato: sirve para pensar «¿y si subo este producto?» antes de decidir. El resultado depende de cuánta clientela supongas que se pierde, y eso nadie lo sabe de antemano; por eso verás todos los casos.</p>';
+  h += '<p style="margin:0 0 6px;font-weight:700">Base de cálculo</p><div class="seg" role="group" aria-label="Periodo de ventas que sirve de base">' + ventanas.map(function(o){ return '<button type="button" data-act="sim-vent" data-v="' + o[0] + '" aria-pressed="' + (v === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
+  h += '<p class="sub-txt" style="margin:6px 0 16px">Con las ventas de ' + (v === 'todo' ? 'todo el periodo cargado' : 'los últimos ' + v + ' días') + ' (' + simVentana().length + ' días con datos). El precio actual es el último al que se vendió.</p>';
+  h += '<label for="sim-q" style="display:block;font-weight:700;margin:0 0 6px">Añade un producto</label><input class="campo" id="sim-q" type="search" data-f="sim-q" autocomplete="off" placeholder="Buscar producto…" value="' + esc(sim.q) + '"><div id="sim-busca">' + simBuscadorSeguro(res.a) + '</div></section>';
+  if (sim.items.length){
+    h += '<section class="bloque"><h2>Tus simulaciones</h2>' + res.lineas.map(simLineaHtml).join('') + '<p><button type="button" class="btn claro peq" data-act="sim-limpiar">Quitar todos</button></p></section>';
+    h += '<section class="bloque"><h2>¿Y si se pierde clientela?</h2><label for="sim-perd" style="display:block;font-weight:700">Unidades que se dejan de vender: <span id="sim-perd-txt">' + T.fmtNum(sim.perd) + ' %</span></label>' +
+      '<input class="sim-slider" id="sim-perd" type="range" min="0" max="50" step="1" value="' + sim.perd + '" data-f="sim-perd" aria-label="Porcentaje de unidades que se pierden"><div id="sim-res">' + simResultados(res) + '</div></section>';
+  }
+  h += '<section class="bloque"><h2>Cómo leer esto</h2><ul class="notas"><li>Se supone que quien no compra el producto <b>no lo sustituye</b> por otro de la carta. Si lo sustituye por uno más barato, el efecto real es algo peor; si lo sustituye por uno más caro, mejor.</li><li>Las cifras de «al año» se calculan con el ritmo de los días abiertos del periodo elegido: no tienen en cuenta temporada, festivos ni cambios de carta.</li><li>Los precios son los de las ventas de Ágora. Si ahí incluyen IVA, escribe también el coste con IVA para que la comparación sea justa; el punto de equilibrio en ingresos no depende de eso.</li><li>El coste solo se guarda en este dispositivo.</li></ul></section>';
+  return h;
+}
+function simBuscadorSeguro(a){ try { return simBuscador(a); } catch (e){ return ''; } }
+function simRepintarResultados(){ var res = simLineas(), c = document.getElementById('sim-res'); if (c) c.innerHTML = simResultados(res); var t = document.getElementById('sim-perd-txt'); if (t) t.textContent = T.fmtNum(S.sim.perd) + ' %'; }
+function simCambio(t, f){
+  var k = t.dataset.k, it = k && S.sim.items.filter(function(i){ return i.k === k; })[0], y = window.pageYOffset;
+  if (f === 'sim-nuevo' && it){ it.nuevo = t.value.trim() === '' ? null : parseEur(t.value); it.perd = null; }
+  else if (f === 'sim-coste' && it){ it.coste = t.value.trim() === '' ? null : parseEur(t.value); simGuardarCoste(k, it.coste); }
+  else return;
+  pintarPag(); window.scrollTo(0, y);
+}
+function simAccion(act, v, k){
+  var it = S.sim.items.filter(function(i){ return i.k === (k || v); })[0];
+  switch (act){
+    case 'sim-vent': S.sim.vent = v === 'todo' ? 'todo' : +v; break;
+    case 'sim-add': if (!it && S.sim.items.length < 12) S.sim.items.push({ k: v, nuevo: null, coste: simCostes()[v] === undefined ? null : simCostes()[v], perd: null }); S.sim.q = ''; break;
+    case 'sim-del': S.sim.items = S.sim.items.filter(function(i){ return i.k !== v; }); break;
+    case 'sim-limpiar': S.sim.items = []; break;
+    case 'sim-sube': {
+      if (!it) break; var b = T.baseProducto(T.agregar(simModelo(), simVentana()), simHist(it.k), it.k); if (!b) break;
+      var P0 = b.P0, nuevo = v.charAt(0) === 'p' ? P0 * (1 + (+v.slice(1)) / 100) : P0 + (+v.slice(1)); it.nuevo = redondeo5(nuevo); it.perd = null; break; }
+    case 'sim-usar': {
+      if (!it) break; if (it.perd !== null){ it.perd = null; break; }
+      var b2 = T.baseProducto(T.agregar(simModelo(), simVentana()), simHist(it.k), it.k), est = b2 && it.nuevo !== null ? T.perdidaHistorica(simHist(it.k), b2.P0, it.nuevo) : null;
+      if (est !== null) it.perd = Math.round(est * 10) / 10; break; }
+    default: return false;
+  }
+  return true;
+}
+
 /* ============================== DATOS ============================== */
 function vistaDatos(){
   var m = S.m, fs = m.fechas, sin = T.diasSinDatos(m), all = T.agregar(m, fs);
@@ -1182,7 +1428,7 @@ function vistaDatos(){
 function vistaVacia(){ return '<div class="vacio"><b>Todavía no hay ventas cargadas</b>Cuando se cargue el primer día, aparecerá aquí el resumen.</div>'; }
 function pintarPag(){
   var m = S.m, el = document.getElementById('pag'); if (!el) return;
-  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : vistaDatos());
+  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : S.tab === 'simulaciones' ? vistaSimulaciones() : vistaDatos());
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function(b){ b.setAttribute('aria-selected', String(b.dataset.v === S.tab)); });
   var pl = document.querySelector('.grafico .plot'); if (pl) pl.scrollLeft = pl.scrollWidth;
   var cont = document.querySelector('.tabs-in'), tsel = document.querySelector('.tab[aria-selected="true"]');       // en pantallas estrechas, la pestaña activa queda a la vista
@@ -1192,7 +1438,7 @@ function armarMarco(){
   var m = S.m, ult = T.ultimaFecha(m);
   app.innerHTML = '<header class="cab"><div class="cab-in">' + MARCA + '' +
     '<div class="cab-txt"><b>Ventas · panel de socios</b><small>' + (ult ? 'Datos hasta el ' + T.fmtFechaLarga(ult) : 'Sin datos todavía') + ' · <button type="button" class="enlace" data-act="salir">Salir</button></small></div></div></header>' +
-    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['datos', 'Datos']].map(function(t){
+    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['simulaciones', 'Simulaciones'], ['datos', 'Datos']].map(function(t){
       return '<button type="button" role="tab" class="tab" data-act="tab" data-v="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></nav><main class="pag" id="pag"></main>';
   pintarPag();
 }
@@ -1231,7 +1477,7 @@ function irTab(v){
   else if (v !== 'servicio' && S.tab === 'servicio') salirServicio();
   S.tab = v;
 }
-function actuar(act, v){
+function actuar(act, v, k){
   var antes = window.pageYOffset;
   switch (act){
     case 'tab': irTab(v); pintarPag(); scrollArriba(); return;
@@ -1255,8 +1501,8 @@ function actuar(act, v){
     case 'prod-orden': S.prod.orden = v; break;
     case 'reintentar': iniciar(); return;
     case 'entrar': entrar(); return;
-    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.tab = 'resumen'; pintarAcceso(); return;
-    default: return;
+    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {} }; pintarAcceso(); return;
+    default: if (act.indexOf('sim-') === 0 && simAccion(act, v, k) !== false) break; return;
   }
   pintarPag(); window.scrollTo(0, antes);
 }
@@ -1269,10 +1515,11 @@ function refrescarLecturaDia(){
 }
 document.addEventListener('click', function(ev){
   var b = ev.target.closest ? ev.target.closest('[data-act]') : null;
-  if (b && !b.disabled) actuar(b.dataset.act, b.dataset.v);
+  if (b && !b.disabled) actuar(b.dataset.act, b.dataset.v, b.dataset.k);
 });
 document.addEventListener('change', function(ev){
   var t = ev.target, f = t.dataset && t.dataset.f; if (!f) return;
+  if (f.indexOf('sim-') === 0){ simCambio(t, f); return; }
   if (f === 'periodo'){ S.anchor = t.value; }
   else if (f === 'desde' || f === 'hasta'){
     var r = { desde: S.rango.desde, hasta: S.rango.hasta }; if (T.esIso(t.value)) r[f] = t.value; S.rango = r;
@@ -1282,6 +1529,8 @@ document.addEventListener('change', function(ev){
 document.addEventListener('input', function(ev){
   var t = ev.target;
   if (t.dataset && t.dataset.f === 'q'){ S.prod.q = t.value; repintarListaProductos(); }
+  else if (t.dataset && t.dataset.f === 'sim-q'){ S.sim.q = t.value; var bz = document.getElementById('sim-busca'); if (bz) bz.innerHTML = simBuscadorSeguro(T.agregar(simModelo(), simVentana())); }
+  else if (t.dataset && t.dataset.f === 'sim-perd'){ S.sim.perd = +t.value; simRepintarResultados(); }
 });
 
 var SES = 'ventas_socio_v1';       // solo se guarda el permiso firmado; nunca la contraseña
@@ -1317,7 +1566,7 @@ async function iniciar(){
     var d = await API.ventas(ses.token);
     S.m = T.crearModelo(d.shards, d.clasif); S.estado = d.estado || null; S.ses = ses;
     S.svInfo = d.servicio ? { error: d.servicio.error || '', desactualizado: !!d.servicio.desactualizado, leido: d.servicio.leido || '', descartados: d.servicio.descartados || 0 } : null;
-    S.sv = T.crearServicio(d.servicio && d.servicio.dias ? d.servicio.dias : []); S.srv = { sel: null, todos: false, clave: '', serie: [] };
+    S.sv = T.crearServicio(d.servicio && d.servicio.dias ? d.servicio.dias : []); S.srv = { sel: null, todos: false, clave: '', serie: [] }; S.sim.hist = {};
     S.mV = S.m; S.mS = modeloServicio(S.mV, S.sv); if (S.tab === 'servicio') S.m = S.mS;
     var ult = T.ultimaFecha(S.m);
     S.anchor = ult;
