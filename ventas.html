@@ -326,6 +326,13 @@ button{ cursor:pointer; }
 .sim-semana > div.on{ border-color:var(--tinta); opacity:1; background:var(--amarillo-claro); }
 .sim-semana small{ font-size:12px; color:var(--suave); } .sim-semana b{ font-size:13px; }
 .sim-semana i{ display:block; width:62%; background:var(--tinta); border-radius:3px 3px 0 0; }
+
+.sim-ayuda{ border:2px solid var(--tinta); border-radius:12px; background:var(--blanco); padding:12px 16px; margin:0 0 20px; }
+.sim-ayuda-cab{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.sim-ayuda-cab b{ font-size:18px; }
+.sim-ayuda p{ margin:10px 0 0; font-size:15.5px; } .sim-ayuda .sim-nota{ color:var(--suave); font-size:14px; }
+.sim-pasos{ margin:10px 0 0; padding-left:22px; } .sim-pasos li{ margin:0 0 7px; font-size:15.5px; }
+.sim-glosario{ margin:0; } .sim-glosario dt{ font-weight:700; margin-top:12px; } .sim-glosario dd{ margin:2px 0 0; color:#3A372B; }
 </style>
 </head>
 <body>
@@ -853,7 +860,7 @@ var S = {
   evo: { vent: 30, met: 'c', desg: 'total', sel: null, todos: false },
   prod: { cat: 'Todas', sub: 'Todas', q: '', orden: 'u' },
   sv: null, svInfo: null, srv: { sel: null, todos: false, clave: '', serie: [] },
-  sim: { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true] }
+  sim: { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }
 };
 
 /* ---------- utilidades ---------- */
@@ -1379,7 +1386,7 @@ function simResultados(res){
   var uPerd = 0, uAnio = 0; con.forEach(function(x){ var q = (x.it.perd === null ? perd : x.it.perd) / 100; uPerd += x.base.uDia * q; uAnio += x.base.U * q; });
   var R0 = 0, R1u = 0; Ls.forEach(function(L){ R0 += L.U * L.P0; R1u += L.U * L.P1; });
   var eqGlobal = R1u ? (1 - R0 / R1u) * 100 : null;
-  var h = '<div class="sim-kpis">' +
+  var h = '<p class="sub-txt" style="margin:10px 0 0">Las cifras son <b>para un año</b>, para el conjunto de productos que has añadido, vendiendo solo ' + esc(simDiasTexto()) + ' al ritmo del periodo elegido. «Ingresos» es lo que se factura; «margen» es lo que queda después de restar el coste.</p><div class="sim-kpis">' +
     '<div class="sim-kpi"><small>Ingresos al año de estos productos</small><b>' + T.fmtEurEnt(t.R1) + '</b><span>ahora ' + T.fmtEurEnt(t.R0) + '</span></div>' +
     '<div class="sim-kpi"><small>Diferencia en ingresos al año</small><b class="' + (t.dR >= 0 ? 'mas' : 'menos') + '">' + signo(t.dR) + '</b><span>' + (t.dR >= 0 ? '+' : '') + T.fmtPct(pct) + ' · ' + signo(t.dR / 12) + ' al mes</span></div>' +
     (t.conCoste ? '<div class="sim-kpi"><small>Diferencia en margen al año' + (t.conCoste < t.n ? ' (' + t.conCoste + ' de ' + t.n + ' con coste)' : '') + '</small><b class="' + (t.dM >= 0 ? 'mas' : 'menos') + '">' + signo(t.dM) + '</b><span>' + signo(t.dM / 12) + ' al mes</span></div>' : '') +
@@ -1387,14 +1394,14 @@ function simResultados(res){
   h += '<div class="aviso ' + (t.dR >= 0 ? 'ok' : 'err') + '">' + (t.dR >= 0 ? 'Si pierdes ese ' + T.fmtPct(perd, 0) + ' de las unidades, la subida te deja <b>' + T.fmtEurEnt(t.dR) + ' más al año</b> en ingresos' : 'Si pierdes ese ' + T.fmtPct(perd, 0) + ' de las unidades, la subida te hace <b>perder ' + T.fmtEurEnt(-t.dR) + ' al año</b> en ingresos') + (t.conCoste && t.dM !== null ? ' y ' + (t.dM >= 0 ? '<b>' + T.fmtEurEnt(t.dM) + ' más</b>' : '<b>' + T.fmtEurEnt(-t.dM) + ' menos</b>') + ' en margen' + (t.conCoste < t.n ? ' (solo de los productos con coste)' : '') : '') + '.</div>';
   if (eqGlobal !== null && eqGlobal > 0) h += '<p class="sim-dato">Punto de equilibrio del conjunto: la subida compensa en ingresos mientras pierdas <b>menos del ' + T.fmtPct(eqGlobal) + '</b> de las unidades.</p>';
   var tabla = T.tablaEscenarios(Ls, [0, 5, 10, 15, 20, 30, 40]), conM = tabla[0].dM !== null;
-  h += '<h3 style="margin:18px 0 6px;font-size:17px">Escenarios según la clientela que se pierda</h3><div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Pierdes</th><th>Ingresos al año</th>' + (conM ? '<th>Margen al año</th>' : '') + '</tr></thead><tbody>' + tabla.map(function(f){
+  h += '<h3 style="margin:18px 0 2px;font-size:17px">Escenarios según la clientela que se pierda</h3><p class="sub-txt" style="margin:0 0 8px">Cada fila dice qué pasaría <b>respecto a como estás ahora</b> si, después de subir el precio, vendieras ese porcentaje menos de unidades. Verde: ganas; rojo: pierdes.</p><div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Pierdes</th><th>Ingresos al año</th>' + (conM ? '<th>Margen al año</th>' : '') + '</tr></thead><tbody>' + tabla.map(function(f){
     return '<tr' + (f.perd === Math.round(perd) ? ' class="act"' : '') + '><td>' + f.perd + ' %</td><td class="' + (f.dR >= 0 ? 'mas' : 'menos') + '">' + signo(f.dR) + '</td>' + (conM ? '<td class="' + (f.dM >= 0 ? 'mas' : 'menos') + '">' + signo(f.dM) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table></div>';
   return h;
 }
 function vistaSimulaciones(){
   var m = simModelo(), sim = S.sim, res = simLineas(), v = sim.vent, ventanas = [[30, '30 días'], [90, '90 días'], [180, '180 días'], ['todo', 'Todo']];
   var h = '<section class="bloque"><h2>Simulaciones de precio</h2><p class="sim-aviso"><b>Es solo una calculadora.</b> No cambia ningún precio ni ningún dato: sirve para pensar «¿y si subo este producto?» antes de decidir. El resultado depende de cuánta clientela supongas que se pierde, y eso nadie lo sabe de antemano; por eso verás todos los casos.</p>';
-  h += '<p style="margin:0 0 6px;font-weight:700">Base de cálculo</p><div class="seg" role="group" aria-label="Periodo de ventas que sirve de base">' + ventanas.map(function(o){ return '<button type="button" data-act="sim-vent" data-v="' + o[0] + '" aria-pressed="' + (v === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
+  h += simAyudaHtml() + '<p style="margin:0 0 6px;font-weight:700">Base de cálculo</p><div class="seg" role="group" aria-label="Periodo de ventas que sirve de base">' + ventanas.map(function(o){ return '<button type="button" data-act="sim-vent" data-v="' + o[0] + '" aria-pressed="' + (v === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
   h += '<p style="margin:16px 0 6px;font-weight:700">Días de la semana</p><div class="chips" role="group" aria-label="Días de la semana que se simulan">' + ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(function(n, i){ return '<button type="button" data-act="sim-dia" data-v="' + i + '" aria-pressed="' + !!sim.dias[i] + '">' + n + '</button>'; }).join('') + '</div>' +
     '<div class="sim-rapido" style="margin-top:8px" role="group" aria-label="Selecciones rápidas">' + [['Todos', 'todos'], ['Lunes a jueves', 'lj'], ['Viernes a domingo', 'vd'], ['Solo fin de semana', 'fin']].map(function(o){ return '<button type="button" data-act="sim-dias" data-v="' + o[1] + '">' + o[0] + '</button>'; }).join('') + '</div>';
   h += '<p class="sub-txt" style="margin:8px 0 16px">Con las ventas de ' + (v === 'todo' ? 'todo el periodo cargado' : 'los últimos ' + v + ' días') + ', solo ' + esc(simDiasTexto()) + ' (' + simVentana().length + ' días con datos). El precio actual es el último al que se vendió. Elige los días que te interesan: una subida puede convenir un sábado y no un lunes.</p>';
@@ -1404,8 +1411,29 @@ function vistaSimulaciones(){
     h += '<section class="bloque"><h2>¿Y si se pierde clientela?</h2><label for="sim-perd" style="display:block;font-weight:700">Unidades que se dejan de vender: <span id="sim-perd-txt">' + T.fmtNum(sim.perd) + ' %</span></label>' +
       '<input class="sim-slider" id="sim-perd" type="range" min="0" max="50" step="1" value="' + sim.perd + '" data-f="sim-perd" aria-label="Porcentaje de unidades que se pierden"><div id="sim-res">' + simResultados(res) + '</div></section>';
   }
-  h += '<section class="bloque"><h2>Cómo leer esto</h2><ul class="notas"><li>Se supone que quien no compra el producto <b>no lo sustituye</b> por otro de la carta. Si lo sustituye por uno más barato, el efecto real es algo peor; si lo sustituye por uno más caro, mejor.</li><li>Las cifras de «al año» se calculan con el ritmo del periodo y de los días de la semana elegidos, como si todo el año fuera así: no tienen en cuenta temporada, festivos ni cambios de carta. Si eliges, por ejemplo, solo viernes y sábados, el resultado es lo que pasaría <b>solo en esos días</b>.</li><li>Las barras de cada producto muestran las unidades medias que vende cada día de la semana, para que veas dónde pesa más.</li><li>Los precios son los de las ventas de Ágora. Si ahí incluyen IVA, escribe también el coste con IVA para que la comparación sea justa; el punto de equilibrio en ingresos no depende de eso.</li><li>El coste solo se guarda en este dispositivo.</li></ul></section>';
+  h += '<section class="bloque"><h2>Cómo leer esto</h2><ul class="notas"><li>Se supone que quien no compra el producto <b>no lo sustituye</b> por otro de la carta. Si lo sustituye por uno más barato, el efecto real es algo peor; si lo sustituye por uno más caro, mejor.</li><li>Las cifras de «al año» se calculan con el ritmo del periodo y de los días de la semana elegidos, como si todo el año fuera así: no tienen en cuenta temporada, festivos ni cambios de carta. Si eliges, por ejemplo, solo viernes y sábados, el resultado es lo que pasaría <b>solo en esos días</b>.</li><li>Las barras de cada producto muestran las unidades medias que vende cada día de la semana, para que veas dónde pesa más.</li><li>Los precios son los de las ventas de Ágora. Si ahí incluyen IVA, escribe también el coste con IVA para que la comparación sea justa; el punto de equilibrio en ingresos no depende de eso.</li><li>El coste solo se guarda en este dispositivo.</li></ul></section>' +
+    '<section class="bloque"><h2>Glosario</h2><dl class="sim-glosario">' +
+    '<dt>Punto de equilibrio</dt><dd>El porcentaje de unidades que puedes perder tras una subida sin ingresar menos que antes. Si pierdes menos, ganas; si pierdes más, pierdes.</dd>' +
+    '<dt>Ingresos</dt><dd>Lo que se factura: unidades vendidas por el precio.</dd>' +
+    '<dt>Margen</dt><dd>Lo que queda después de restar el coste del producto: unidades vendidas por (precio − coste). Con una subida, cada unidad que sigues vendiendo deja más, por eso el margen aguanta perder más clientela que los ingresos.</dd>' +
+    '<dt>Coste por unidad</dt><dd>Lo que te cuesta cada unidad (ingredientes, compra…). Es opcional y solo se guarda en este dispositivo.</dd>' +
+    '<dt>Unidades que se pierden</dt><dd>La clientela que dejaría de pedir el producto por la subida. Es una suposición tuya, no un dato: por eso hay un deslizador y una tabla con todos los casos.</dd>' +
+    '<dt>Estimación del historial</dt><dd>Si el producto ya cambió de precio antes, se mira cómo evolucionó su parte de las ventas del local y se proyecta a la subida que simulas. Es una pista, no una garantía.</dd>' +
+    '<dt>Cuota</dt><dd>La parte de todas las unidades vendidas en el local que corresponde a ese producto. Sirve para comparar épocas con más o menos gente.</dd>' +
+    '<dt>Día abierto</dt><dd>Un día con ventas cargadas. Los días de la semana elegidos se cuentan por el calendario, incluidos los cerrados, para no inflar las cifras.</dd></dl></section>';
   return h;
+}
+function simAyudaHtml(){
+  var abierta = S.sim.ayuda, h = '<div class="sim-ayuda"><div class="sim-ayuda-cab"><b>Cómo funciona</b><button type="button" class="btn claro peq" data-act="sim-ayuda" aria-expanded="' + abierta + '">' + (abierta ? 'Ocultar explicación' : 'Mostrar explicación') + '</button></div>';
+  if (!abierta) return h + '</div>';
+  return h + '<ol class="sim-pasos">' +
+    '<li><b>Elige la base.</b> El periodo de ventas y los días de la semana con los que se calcula cuánto se vende ahora. Un sábado no se parece a un lunes: elige solo los días que quieras estudiar.</li>' +
+    '<li><b>Añade productos</b> y escribe el precio nuevo (o pulsa +5 %, +10 %…). Si quieres ver también el margen, escribe lo que te cuesta cada unidad.</li>' +
+    '<li><b>Mira el punto de equilibrio:</b> el porcentaje de unidades que puedes dejar de vender antes de que la subida deje de salir a cuenta.</li>' +
+    '<li><b>Mueve el deslizador</b> para probar cuánta clientela crees que perderías y mira lo que cambia al año en ingresos y en margen.</li></ol>' +
+    '<p><b>Ejemplo:</b> un producto que cuesta 4,00 € y subes a 4,40 € (+10 %). Si sigues vendiendo casi lo mismo, ingresas más. Solo si pierdes más del 9,1 % de las unidades (1 de cada 11) acabarías ingresando menos que antes.</p>' +
+    '<p><b>Cómo decidir:</b> si crees que perderías <b>menos</b> clientela que el punto de equilibrio, la subida compensa; si crees que <b>más</b>, no. Para estimarlo, apóyate en lo que pasó la última vez que ese producto cambió de precio y en las barras de cada día de la semana.</p>' +
+    '<p class="sim-nota">Nadie puede saber de antemano cuánta clientela se pierde. Por eso se muestran todos los casos, desde no perder nada hasta perder el 40 %.</p></div>';
 }
 function simBuscadorSeguro(a){ try { return simBuscador(a); } catch (e){ return ''; } }
 function simRepintarResultados(){ var res = simLineas(), c = document.getElementById('sim-res'); if (c) c.innerHTML = simResultados(res); var t = document.getElementById('sim-perd-txt'); if (t) t.textContent = T.fmtNum(S.sim.perd) + ' %'; }
@@ -1422,6 +1450,7 @@ function simAccion(act, v, k){
     case 'sim-vent': S.sim.vent = v === 'todo' ? 'todo' : +v; break;
     case 'sim-dia': { var i = +v, sel = S.sim.dias.slice(); sel[i] = !sel[i]; if (sel.some(Boolean)) S.sim.dias = sel; break; }
     case 'sim-dias': S.sim.dias = ({ todos: [1, 1, 1, 1, 1, 1, 1], lj: [1, 1, 1, 1, 0, 0, 0], vd: [0, 0, 0, 0, 1, 1, 1], fin: [0, 0, 0, 0, 0, 1, 1] }[v] || [1, 1, 1, 1, 1, 1, 1]).map(Boolean); break;
+    case 'sim-ayuda': S.sim.ayuda = !S.sim.ayuda; break;
     case 'sim-add': if (!it && S.sim.items.length < 12) S.sim.items.push({ k: v, nuevo: null, coste: simCostes()[v] === undefined ? null : simCostes()[v], perd: null }); S.sim.q = ''; break;
     case 'sim-del': S.sim.items = S.sim.items.filter(function(i){ return i.k !== v; }); break;
     case 'sim-limpiar': S.sim.items = []; break;
@@ -1542,7 +1571,7 @@ function actuar(act, v, k){
     case 'prod-orden': S.prod.orden = v; break;
     case 'reintentar': iniciar(); return;
     case 'entrar': entrar(); return;
-    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true] }; pintarAcceso(); return;
+    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }; pintarAcceso(); return;
     default: if (act.indexOf('sim-') === 0 && simAccion(act, v, k) !== false) break; return;
   }
   pintarPag(); window.scrollTo(0, antes);
