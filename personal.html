@@ -72,6 +72,7 @@ body{ font-size:17px; }
 .pestanas{ display:flex; gap:8px; margin:0 0 16px; }
 .pestanas button{ flex:1; min-height:52px; border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); font-weight:700; font-size:16px; }
 .pestanas button[aria-pressed="true"]{ background:var(--tinta); color:var(--amarillo); }
+@media (max-width:480px){ .pestanas{ flex-wrap:wrap; } .pestanas button{ flex:1 1 calc(50% - 4px); } }
 .drop{ border:3px dashed var(--tinta); border-radius:12px; padding:22px 16px; text-align:center; background:var(--amarillo-claro); }
 .drop input{ display:block; margin:12px auto 0; max-width:100%; font-size:16px; }
 .num{ display:inline-block; min-width:2em; text-align:center; border:2px solid var(--tinta); border-radius:999px; padding:0 8px; font-weight:700; margin-right:6px; background:var(--blanco); }
@@ -140,7 +141,7 @@ var URL_SERVICIO = 'https://script.google.com/macros/s/AKfycbywMYu2_J6dUi_MiZAar
 var CLAVE_SESION = 'lnt-personal-sesion';
 var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 var DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-var S = { token: '', paso: 'acceso', tab: 'lista', msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:00','21:30','00:30'], vista: null, enviando: '', hoy: '', inf: { per: 'semana', ref: '', desde: '', hasta: '', r: null, cargando: false, aviso: false, ayuda: true, env: false } };
+var S = { token: '', paso: 'acceso', tab: 'lista', msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:00','21:30','00:30'], vista: null, enviando: '', hoy: '', alt: { mes: '', r: null, cargando: false, error: '' }, inf: { per: 'semana', ref: '', desde: '', hasta: '', r: null, cargando: false, aviso: false, ayuda: true, env: false } };
 
 function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
 function pad(n){ return (n < 10 ? '0' : '') + n; }
@@ -430,15 +431,40 @@ async function correoInforme(){
   catch (e){ if (e.codigo === 'SESION') caducada(); else S.msg = { texto: e.message }; }
   I.env = false; pintar(); window.scrollTo(0, 0);
 }
+/* ---------- Altas en la Seguridad Social (solo nombres y estado; sin DNI ni NUSS) ---------- */
+var ALT_DESDE = '2026-10', ALT_HASTA = '2027-09';
+async function cargarAltas(mes){
+  var A = S.alt; A.cargando = true; A.error = ''; pintar();
+  try { var j = await pedir('altasLeer', { mes: mes || A.mes || '' }); A.r = j; A.mes = j.mes; }
+  catch (e){ if (e.codigo === 'SESION'){ caducada(); } else { A.r = null; A.error = /acci[oó]n|desconocid|no reconoc|unknown/i.test(e.message) ? 'El servicio de Google todavía no tiene la parte de altas. Hay que pegar el código de altas en el Apps Script (te lo ha preparado Claude).' : e.message; } }
+  A.cargando = false; pintar();
+}
+function vistaAltas(){
+  var A = S.alt, r = A.r, m = A.mes || (r && r.mes) || '', h = '';
+  if (m) h += '<div class="mes"><button type="button" class="btn chico" data-act="altmes" data-n="-1" aria-label="Mes anterior"' + (m <= ALT_DESDE ? ' disabled' : '') + '>←</button><b>' + esc(mesTexto(m)) + '</b><button type="button" class="btn chico" data-act="altmes" data-n="1" aria-label="Mes siguiente"' + (m >= ALT_HASTA ? ' disabled' : '') + '>→</button></div>';
+  if (A.error) return h + '<p class="msg mal" role="alert">' + esc(A.error) + '</p>';
+  if (A.cargando && !r) return h + '<section class="caja"><p class="suave" style="margin:0">Cargando las altas…</p></section>';
+  if (!r) return h;
+  var con = r.conAlta || [], faltan = r.faltan || [], noAut = r.noAutorizados || [], auto = r.autonomos || [], tot = con.length + faltan.length;
+  h += '<section class="caja"><h2>Altas de ' + esc(mesTexto(r.mes)) + '</h2><div class="kpis">' +
+    '<div class="kpi"><b>' + con.length + '</b><span>con alta (de ' + tot + ')</span></div>' +
+    '<div class="kpi"><b>' + faltan.length + '</b><span>sin alta este mes</span></div></div>' +
+    '<p class="suave" style="margin:0">' + (faltan.length ? 'Cada trabajador debe tener un alta al mes.' : 'Todos los trabajadores tienen su alta este mes.') + (r.actualizado ? ' Datos del ' + esc(r.actualizado) + '.' : '') + '</p></section><div class="espacio"></div>';
+  if (noAut.length) h += '<section class="caja baja"><h2>NO AUTORIZADO · ' + noAut.length + '</h2><p class="suave">Tienen alta este mes pero no están en la lista autorizada.</p>' + chips(noAut.map(function(x){ return x.nombre + (x.fecha ? ' · ' + x.fecha : ''); })) + '</section><div class="espacio"></div>';
+  if (faltan.length) h += '<section class="caja baja"><h2>Faltan · ' + faltan.length + '</h2>' + chips(faltan) + '</section><div class="espacio"></div>';
+  if (con.length) h += '<section class="caja alta"><h2>Con alta · ' + con.length + '</h2>' + chips(con.map(function(x){ return x.nombre + (x.fecha ? ' · ' + x.fecha : ''); })) + '</section><div class="espacio"></div>';
+  if (auto.length) h += '<section class="caja"><h2>Autónomos · ' + auto.length + '</h2><p class="suave">Están en la lista pero no llevan alta de la empresa: fuera del control mensual.</p>' + chips(auto) + '</section>';
+  return h;
+}
 function vistaPanel(){
   return '<div class="arriba"><span>Hola, Jorge</span><button type="button" class="btn chico" data-act="salir">Salir</button></div>' +
-    '<div class="pestanas" role="group"><button type="button" data-act="tab" data-t="lista" aria-pressed="' + (S.tab === 'lista') + '">Lista autorizada</button><button type="button" data-act="tab" data-t="registro" aria-pressed="' + (S.tab === 'registro') + '">Quién ha venido</button><button type="button" data-act="tab" data-t="informes" aria-pressed="' + (S.tab === 'informes') + '">Informes</button></div>' +
-    (S.tab === 'lista' ? (S.msg && S.msg.ok ? '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>' : '') + vistaLista() : S.tab === 'informes' ? vistaInformes() : vistaRegistro());
+    '<div class="pestanas" role="group"><button type="button" data-act="tab" data-t="lista" aria-pressed="' + (S.tab === 'lista') + '">Lista autorizada</button><button type="button" data-act="tab" data-t="registro" aria-pressed="' + (S.tab === 'registro') + '">Quién ha venido</button><button type="button" data-act="tab" data-t="informes" aria-pressed="' + (S.tab === 'informes') + '">Informes</button><button type="button" data-act="tab" data-t="altas" aria-pressed="' + (S.tab === 'altas') + '">Altas SS</button></div>' +
+    (S.tab === 'lista' ? (S.msg && S.msg.ok ? '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>' : '') + vistaLista() : S.tab === 'informes' ? vistaInformes() : S.tab === 'altas' ? vistaAltas() : vistaRegistro());
 }
 function pintar(){
   var app = document.getElementById('app'), foco = document.activeElement && document.activeElement.id;
   app.innerHTML = S.paso === 'acceso' ? vistaAcceso() : vistaPanel();
-  document.getElementById('quien').textContent = S.paso === 'acceso' ? 'Solo para Jorge' : (S.tab === 'lista' ? 'Quién puede entrar a trabajar' : S.tab === 'informes' ? 'Informes de asistencia' : 'Asistencia por día');
+  document.getElementById('quien').textContent = S.paso === 'acceso' ? 'Solo para Jorge' : (S.tab === 'lista' ? 'Quién puede entrar a trabajar' : S.tab === 'informes' ? 'Informes de asistencia' : S.tab === 'altas' ? 'Altas en la Seguridad Social' : 'Asistencia por día');
   if (foco && foco !== 'archivo'){ var e = document.getElementById(foco); if (e && e.focus){ try { e.focus(); } catch (x){} } }
 }
 
@@ -492,6 +518,8 @@ document.addEventListener('click', function(ev){
   var b = ev.target.closest && ev.target.closest('[data-act]'); if (!b) return; var a = b.dataset.act;
   if (a === 'salir'){ guardarSesion(null); S.token = ''; S.paso = 'acceso'; S.msg = null; S.vista = null; pintar(); }
   else if (a === 'tab' && b.dataset.t === 'informes'){ S.tab = 'informes'; S.msg = null; ajustarPeriodo(); if (S.inf.r) pintar(); else cargarInforme(); }
+  else if (a === 'tab' && b.dataset.t === 'altas'){ S.tab = 'altas'; S.msg = null; cargarAltas(); }
+  else if (a === 'altmes'){ var nm = mesMas(S.alt.mes, +b.dataset.n); if (nm >= ALT_DESDE && nm <= ALT_HASTA) cargarAltas(nm); }
   else if (a === 'per'){ S.inf.per = b.dataset.p; S.inf.r = null; if (S.inf.per !== 'rango'){ S.inf.ref = S.hoy; } ajustarPeriodo(); if (S.inf.per === 'rango'){ S.msg = null; pintar(); } else cargarInforme(); }
   else if (a === 'mover'){ S.inf.ref = moverRef(S.inf.per, S.inf.ref, +b.dataset.n); cargarInforme(); }
   else if (a === 'ver'){ var d1 = document.getElementById('r-desde').value, d2 = document.getElementById('r-hasta').value; if (!d1 || !d2){ S.msg = { texto: 'Elige las dos fechas.' }; pintar(); return; } if (d1 > d2){ S.msg = { texto: 'La fecha de inicio es posterior a la de fin.' }; pintar(); return; } S.inf.desde = d1; S.inf.hasta = d2; cargarInforme(); }
