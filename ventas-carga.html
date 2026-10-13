@@ -159,6 +159,43 @@ label{ font-weight:500; font-size:14px; display:block; margin-bottom:4px; }
 .alta{ background:var(--blanco); border:2px solid var(--tinta); border-radius:10px; padding:14px; margin:14px 0 18px; max-width:520px; }
 
 
+
+/* ---------- Informes · relaciones públicas ---------- */
+.rr-barra{ margin:12px 0 4px; }
+.rr-nav{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin:14px 0 6px; }
+.rr-nav b{ font-size:20px; text-align:center; flex:1; }
+.rr-fila{ display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; margin-top:10px; }
+.rr-fila > div{ flex:1 1 200px; }
+.rr-fila .btn{ flex:0 0 auto; }
+.rr-h3{ font-size:18px; margin:26px 0 8px; }
+.rr-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:14px 0; }
+.rr-kpi{ border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); padding:10px 12px; }
+.rr-kpi b{ display:block; font-size:24px; line-height:1.15; }
+.rr-kpi span{ font-size:13.5px; color:var(--suave); }
+.rr-botones{ margin:12px 0 4px; }
+.rr-scroll{ overflow-x:auto; }
+.rr-tabla{ border-collapse:collapse; width:100%; font-size:15px; background:var(--blanco); }
+.rr-tabla th, .rr-tabla td{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--linea); white-space:nowrap; }
+.rr-tabla th{ font-size:13px; color:var(--suave); font-weight:500; border-bottom:2px solid var(--tinta); }
+.rr-tabla .n{ text-align:right; }
+.rr-tabla tr.tot td{ border-top:2px solid var(--tinta); font-weight:700; background:var(--amarillo-claro); }
+.rr-tabla tr.cero td{ color:var(--piedra); }
+.rr-ayuda{ background:var(--amarillo-claro); border:2px solid var(--tinta); border-radius:10px; padding:4px 14px; font-size:14.5px; }
+.rr-ayuda summary{ cursor:pointer; font-weight:700; min-height:40px; display:flex; align-items:center; }
+.rr-ayuda p{ margin:6px 0 10px; }
+.rr-prods{ border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); margin-bottom:8px; }
+.rr-prods summary{ cursor:pointer; padding:10px 14px; display:flex; justify-content:space-between; gap:10px; min-height:44px; align-items:center; flex-wrap:wrap; }
+.rr-prods summary span{ color:var(--suave); font-size:14px; }
+.rr-lp{ list-style:none; margin:0; padding:0 14px 6px; }
+.rr-lp li{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--linea); flex-wrap:wrap; }
+.rr-lp small{ display:block; color:var(--suave); font-size:13px; }
+.rr-chips{ list-style:none; margin:0 0 6px; padding:0; display:flex; flex-wrap:wrap; gap:8px; }
+.rr-chips li{ display:flex; align-items:center; gap:8px; border:2px solid var(--tinta); border-radius:999px; background:var(--blanco); padding:4px 6px 4px 14px; }
+.rr-chips li span{ color:var(--suave); font-size:13px; }
+.rr-x{ border:0; background:var(--pista); border-radius:50%; width:30px; height:30px; font-weight:700; line-height:1; }
+.rr-x:hover:not(:disabled){ background:var(--baja-bg); color:var(--baja); }
+.rr-acc{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.rr-acc .sel{ width:auto; min-width:130px; }
 </style>
 </head>
 <body>
@@ -754,6 +791,87 @@ return { atributo: atributo, desescapar: desescapar, numEs: numEs, r2: r2, rutas
 if (typeof module !== 'undefined' && module.exports) module.exports = ING;
 
 /* ============================================================
+   Informe de relaciones públicas (RR.PP.): funciones puras.
+   Un producto es de un RR.PP. si su primera palabra es uno de los
+   nombres de la lista, o si Jorge lo ha asignado a mano; los
+   «excluidos» se quedan fuera aunque empiecen por un nombre.
+   ============================================================ */
+var RRP = (function(T){
+'use strict';
+var PREDET = ['JUSTO', 'DAVID', 'JAIME', 'ROCO', 'RODOLFO', 'FEDERICO', 'BRIAN'];
+function porDefecto(){ return { v: 1, nombres: PREDET.slice(), manual: {}, excluidos: [] }; }
+function primera(k){ return String(k).split(/[^A-Z0-9]+/)[0] || ''; }
+function conjunto(a){ var o = Object.create(null); (a || []).forEach(function(x){ o[x] = 1; }); return o; }
+function nombreValido(txt){
+  var k = T.claveProducto(txt || '');
+  if (!/^[A-Z0-9]{2,30}$/.test(k)) return null;
+  return k;
+}
+function copiar(cfg){
+  var c = { v: 1, nombres: (cfg.nombres || []).slice(), manual: {}, excluidos: (cfg.excluidos || []).slice() };
+  Object.keys(cfg.manual || {}).forEach(function(k){ c.manual[k] = cfg.manual[k]; });
+  return c;
+}
+/* Devuelve una función clave de producto → NOMBRE del RR.PP. (o null si no es de ninguno). */
+function resolver(cfg){
+  var nom = conjunto(cfg.nombres), exc = conjunto(cfg.excluidos), man = Object.create(null);
+  Object.keys(cfg.manual || {}).forEach(function(k){ man[k] = cfg.manual[k]; });
+  return function(k){ if (exc[k]) return null; if (man[k]) return man[k]; var p = primera(k); return nom[p] ? p : null; };
+}
+/* Cómo se ha decidido para un producto: 'manual', 'nombre', 'excluido' o '' */
+function motivo(cfg, k){
+  if ((cfg.excluidos || []).indexOf(k) >= 0) return 'excluido';
+  if (Object.prototype.hasOwnProperty.call(cfg.manual || {}, k)) return 'manual';
+  return (cfg.nombres || []).indexOf(primera(k)) >= 0 ? 'nombre' : '';
+}
+function catalogo(m){
+  var cat = Object.create(null);
+  Object.keys(m.clasif.productos).forEach(function(k){ cat[k] = m.clasif.productos[k].n || k; });
+  m.fechas.forEach(function(f){ m.dias[f].filas.forEach(function(r){ if (!cat[r.k]) cat[r.k] = r.n; }); });
+  return cat;
+}
+function contarProductos(m, cfg){
+  var de = resolver(cfg), cat = catalogo(m), out = {}, n = 0;
+  cfg.nombres.forEach(function(x){ out[x] = 0; });
+  Object.keys(cat).forEach(function(k){ var d = de(k); if (d){ out[d] = (out[d] || 0) + 1; n++; } });
+  return { porNombre: out, total: n };
+}
+function informe(m, cfg, fechas){
+  var de = resolver(cfg), por = {}, ap = { u: 0, c: 0, prods: {} }, tot = { u: 0, c: 0 }, serie = [], nDias = 0;
+  cfg.nombres.forEach(function(n){ por[n] = { n: n, u: 0, c: 0, dias: {}, prods: {} }; });
+  fechas.forEach(function(f){
+    var d = m.dias[f]; if (!d) return;
+    nDias++; tot.u += d.tot.u; tot.c += d.tot.c;
+    var fila = { f: f, u: 0, c: 0, por: {} };
+    d.filas.forEach(function(r){
+      var n = de(r.k); if (!n) return;
+      var u = 0, c = 0; for (var i = 0; i < r.u.length; i++){ u += r.u[i]; c += r.c[i]; }
+      if (r.ex){ if (u || c){ ap.u += u; ap.c += c; ap.prods[r.k] = 1; } return; }
+      if (!u && !c) return;
+      var o = por[n] || (por[n] = { n: n, u: 0, c: 0, dias: {}, prods: {} });
+      o.u += u; o.c += c; o.dias[f] = 1;
+      var pr = o.prods[r.k] || (o.prods[r.k] = { k: r.k, n: (m.clasif.productos[r.k] && m.clasif.productos[r.k].n) || r.n, u: 0, c: 0 });
+      pr.u += u; pr.c += c; fila.u += u; fila.c += c; fila.por[n] = (fila.por[n] || 0) + u;
+    });
+    serie.push(fila);
+  });
+  var lista = Object.keys(por).map(function(n){
+    var o = por[n], ps = Object.keys(o.prods).map(function(k){ return o.prods[k]; }).sort(function(a, b){ return (b.c - a.c) || (b.u - a.u) || T.cmpTexto(a.n, b.n); });
+    return { n: n, u: o.u, c: o.c, dias: Object.keys(o.dias).length, prods: ps };
+  }).sort(function(a, b){ return (b.c - a.c) || (b.u - a.u) || T.cmpTexto(a.n, b.n); });
+  var total = { u: 0, c: 0 }; lista.forEach(function(x){ total.u += x.u; total.c += x.c; });
+  return { lista: lista, total: total, ventas: tot, nDias: nDias, serie: serie, apartados: { u: ap.u, c: ap.c, n: Object.keys(ap.prods).length } };
+}
+/* Agrupa la serie diaria por mes (para periodos largos). */
+function porMes(serie){
+  var mm = {}, out = [];
+  serie.forEach(function(f){ var k = f.f.slice(0, 7), o = mm[k]; if (!o){ o = mm[k] = { f: k, u: 0, c: 0, por: {} }; out.push(o); } o.u += f.u; o.c += f.c; Object.keys(f.por).forEach(function(n){ o.por[n] = (o.por[n] || 0) + f.por[n]; }); });
+  return out;
+}
+return { PREDET: PREDET, porDefecto: porDefecto, primera: primera, nombreValido: nombreValido, copiar: copiar, resolver: resolver, motivo: motivo, catalogo: catalogo, contarProductos: contarProductos, informe: informe, porMes: porMes };
+})(TOM);
+
+/* ============================================================
    Carga de ventas · La Negra Tomasa de Sol (solo Jorge)
    Sube el Excel diario de Ágora → comprueba → clasifica → publica
    ============================================================ */
@@ -766,7 +884,8 @@ var SES = 'ventas_sesion_v1';    // permiso firmado por el servicio (no se guard
 var NUEVA = '__nueva__';
 
 var S = { fase: 'inicio', error: null, tab: 'cargar', datos: null, m: null, items: [], nuevos: [], dec: {}, revisado: false, pub: null, exito: null,
-          edits: {}, clave: null, claveA: '', claveB: '', confQuitar: false, pdec: {}, revisadoPend: false, busca: '', confBorrar: null, extraCats: [], verTodas: false, ocupado: false };
+          edits: {}, clave: null, claveA: '', claveB: '', confQuitar: false, pdec: {}, revisadoPend: false, busca: '', confBorrar: null, extraCats: [], verTodas: false, ocupado: false,
+          rr: { cfg: null, cargando: false, guardando: false, err: null, msg: null, per: 'semana', ref: '', desde: '', hasta: '', q: '', abiertos: {}, ayuda: true } };
 
 /* ---------- utilidades ---------- */
 function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -1095,17 +1214,187 @@ function vistaDias(){
         : '<button type="button" class="btn claro peq" data-act="borrar" data-v="' + f + '" aria-label="Borrar el día ' + T.fmtFecha(f) + '">Borrar</button>') + '</li>'; }).join('') + '</ul></section>';
   return h;
 }
+/* ---------- Informes · relaciones públicas ---------- */
+function mesMasIso(iso, n){ var p = iso.split('-'), d = new Date(Date.UTC(+p[0], +p[1] - 1 + n, 1)); return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-01'; }
+function periodoRr(){
+  var R = S.rr, ult = T.ultimaFecha(S.m); if (!ult) return null;
+  if (!R.ref) R.ref = ult;
+  var per;
+  if (R.per === 'anio'){ var y = R.ref.slice(0, 4); per = { modo: 'rango', desde: y + '-01-01', hasta: y + '-12-31' }; }
+  else if (R.per === 'rango') per = { modo: 'rango', desde: R.desde || T.sumarDias(ult, -29), hasta: R.hasta || ult };
+  else per = { modo: R.per, ref: R.ref };
+  var p = T.resolverPeriodo(S.m, per); if (R.per === 'anio') p.etiqueta = 'Año ' + R.ref.slice(0, 4);
+  return p;
+}
+function moverRr(n){
+  var R = S.rr, ref = R.ref || T.ultimaFecha(S.m);
+  R.ref = R.per === 'dia' ? T.sumarDias(ref, n) : R.per === 'semana' ? T.sumarDias(ref, 7 * n) : R.per === 'mes' ? mesMasIso(ref, n) : (+ref.slice(0, 4) + n) + '-01-01';
+}
+function nomRr(n){ return T.titulo(n); }
+function estadoProducto(k){
+  var cfg = S.rr.cfg, mo = RRP.motivo(cfg, k), de = RRP.resolver(cfg)(k);
+  if (mo === 'excluido') return 'Excluido de RR.PP.';
+  if (mo === 'manual') return 'RR.PP. de ' + nomRr(cfg.manual[k]) + ' (asignado a mano)';
+  if (mo === 'nombre') return 'RR.PP. de ' + nomRr(de) + ' (por su nombre)';
+  return 'No es de RR.PP.';
+}
+function selNombres(extra){
+  return '<select class="sel" ' + (extra || '') + ' aria-label="Relaciones públicas">' + S.rr.cfg.nombres.map(function(n){ return '<option value="' + esc(n) + '">' + esc(nomRr(n)) + '</option>'; }).join('') + '</select>';
+}
+function tablaDiasRr(inf, nombres, mes){
+  var serie = mes ? RRP.porMes(inf.serie) : inf.serie, cols = nombres.filter(function(n){ return serie.some(function(f){ return f.por[n]; }); });
+  if (!serie.length) return '';
+  var cab = '<tr><th>' + (mes ? 'Mes' : 'Día') + '</th>' + cols.map(function(n){ return '<th class="n">' + esc(nomRr(n)) + '</th>'; }).join('') + '<th class="n">Uds.</th><th class="n">Ventas</th></tr>';
+  var filas = serie.slice().reverse().map(function(f){
+    return '<tr><td>' + (mes ? esc(T.nombreMes(f.f + '-01')) : esc(T.fmtFechaLarga(f.f))) + '</td>' + cols.map(function(n){ return '<td class="n">' + (f.por[n] ? T.fmtNum(f.por[n]) : '–') + '</td>'; }).join('') + '<td class="n"><b>' + T.fmtNum(f.u) + '</b></td><td class="n"><b>' + T.fmtEur(f.c) + '</b></td></tr>';
+  }).join('');
+  return '<div class="rr-scroll"><table class="rr-tabla"><thead>' + cab + '</thead><tbody>' + filas + '</tbody></table></div>';
+}
+function vistaGestionRr(){
+  var R = S.rr, cfg = R.cfg, h = '', cuenta = RRP.contarProductos(S.m, cfg), cat = RRP.catalogo(S.m), q = T.claveProducto(R.q || '');
+  h += '<section class="bloque"><h2>Lista de relaciones públicas</h2>' +
+    '<p class="sub-txt">Un producto cuenta como de un relaciones públicas cuando <b>su nombre empieza por el nombre de esa persona</b> (por ejemplo «JUSTO PASE CENA» es de Justo). Aquí puedes añadir más nombres y apartar productos concretos. Cada cambio se guarda al momento.</p>';
+  if (R.msg) h += '<div class="aviso ' + (R.msg.t === 'ok' ? 'ok' : 'err') + '" role="status">' + esc(R.msg.x) + '</div>';
+  h += '<h3 class="rr-h3">Nombres en la lista (' + cfg.nombres.length + ')</h3><ul class="rr-chips">' + (cfg.nombres.length ? cfg.nombres.map(function(n){
+    return '<li><b>' + esc(nomRr(n)) + '</b> <span>' + (cuenta.porNombre[n] || 0) + ' ' + plural(cuenta.porNombre[n] || 0, 'producto', 'productos') + '</span><button type="button" class="rr-x" data-act="rr-quitar-nombre" data-v="' + esc(n) + '" aria-label="Quitar a ' + esc(nomRr(n)) + ' de la lista"' + (R.guardando ? ' disabled' : '') + '>✕</button></li>';
+  }).join('') : '<li class="suave">No hay ningún nombre. Añade el primero.</li>') + '</ul>' +
+    '<div class="rr-fila"><div><label for="rr-nombre">Añadir un nombre a la lista</label><input class="campo" id="rr-nombre" type="text" maxlength="30" autocomplete="off" placeholder="Por ejemplo: Carlos"></div><button type="button" class="btn" data-act="rr-add-nombre"' + (R.guardando ? ' disabled' : '') + '>Añadir nombre</button></div>' +
+    '<p class="peq-txt">Basta con una palabra, el nombre que va <b>delante</b> del producto en Ágora. Desde ese momento, todos los productos que empiecen por él (también los que crees más adelante) entran en el informe de esa persona.</p>';
+  h += '<h3 class="rr-h3">Añadir un producto concreto</h3><p class="sub-txt" style="margin-top:0">Para un producto que no empieza por el nombre (por ejemplo «PASE CENA DE JUSTO»). Búscalo y asígnalo a quien corresponda.</p>' +
+    '<input class="campo" type="search" data-f="rrq" placeholder="Buscar producto por su nombre" value="' + esc(R.q || '') + '" aria-label="Buscar producto">';
+  if (q.length >= 2){
+    var res = Object.keys(cat).filter(function(k){ return k.indexOf(q) >= 0; }).sort(function(a, b){ return T.cmpTexto(cat[a], cat[b]); });
+    h += '<p class="contador" style="margin-top:10px">' + res.length + ' ' + plural(res.length, 'producto encontrado', 'productos encontrados') + (res.length > 12 ? ' (se muestran 12; afina la búsqueda)' : '') + '</p>';
+    if (res.length && cfg.nombres.length) h += '<ul class="clas rr-res">' + res.slice(0, 12).map(function(k){
+      var mo = RRP.motivo(cfg, k);
+      return '<li><div class="clas-n"><b>' + esc(cat[k]) + '</b><small>' + esc(estadoProducto(k)) + '</small></div><div class="rr-acc">' + selNombres() + '<button type="button" class="btn peq" data-act="rr-asignar" data-v="' + esc(k) + '"' + (R.guardando ? ' disabled' : '') + '>Asignar</button>' +
+        (mo === 'nombre' ? '<button type="button" class="btn claro peq" data-act="rr-excluir" data-v="' + esc(k) + '"' + (R.guardando ? ' disabled' : '') + '>No es RR.PP.</button>' : '') + '</div></li>';
+    }).join('') + '</ul>';
+    else if (!cfg.nombres.length) h += '<p class="suave">Primero añade algún nombre a la lista.</p>';
+  }
+  var man = Object.keys(cfg.manual).sort(function(a, b){ return T.cmpTexto(cat[a] || a, cat[b] || b); });
+  if (man.length) h += '<h3 class="rr-h3">Productos asignados a mano (' + man.length + ')</h3><ul class="clas">' + man.map(function(k){
+    return '<li><div class="clas-n"><b>' + esc(cat[k] || k) + '</b><small>RR.PP. de ' + esc(nomRr(cfg.manual[k])) + '</small></div><div class="rr-acc"><button type="button" class="btn claro peq" data-act="rr-quitar-manual" data-v="' + esc(k) + '"' + (R.guardando ? ' disabled' : '') + '>Quitar</button></div></li>'; }).join('') + '</ul>';
+  if (cfg.excluidos.length) h += '<h3 class="rr-h3">Empiezan por un nombre pero NO son de RR.PP. (' + cfg.excluidos.length + ')</h3><ul class="clas">' + cfg.excluidos.map(function(k){
+    return '<li><div class="clas-n"><b>' + esc(cat[k] || k) + '</b><small>Apartado del informe</small></div><div class="rr-acc"><button type="button" class="btn claro peq" data-act="rr-devolver" data-v="' + esc(k) + '"' + (R.guardando ? ' disabled' : '') + '>Volver a incluir</button></div></li>'; }).join('') + '</ul>';
+  return h + '</section>';
+}
+function vistaInformes(){
+  var R = S.rr, h = '';
+  if (R.cargando && !R.cfg) return '<div class="vacio"><b>Cargando…</b>Un momento.</div>';
+  if (!R.cfg) return '<div class="aviso err">' + esc(R.err || 'No se ha podido cargar la lista de relaciones públicas.') + '</div><p><button type="button" class="btn" data-act="rr-reintentar">Reintentar</button></p>';
+  var p = periodoRr();
+  if (!p || p.vacio) return '<div class="vacio"><b>Todavía no hay ventas cargadas</b>Cuando subas el primer día podrás sacar el informe.</div>' + vistaGestionRr();
+  var ult = T.ultimaFecha(S.m), inf = RRP.informe(S.m, R.cfg, p.fechas), nombres = inf.lista.map(function(x){ return x.n; });
+  var tabs = [['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes'], ['anio', 'Año'], ['rango', 'Rango']];
+  h += '<section class="bloque"><div class="bloque-cab"><h2>Informe de relaciones públicas</h2></div>' +
+    '<details class="rr-ayuda"' + (R.ayuda ? ' open' : '') + ' id="rr-ayuda"><summary>Cómo leer este informe</summary>' +
+    '<p><b>Qué cuenta:</b> todos los productos cuyo nombre empieza por el de un relaciones públicas de la lista (Justo, David, Jaime, Roco, Rodolfo, Federico, Brian…). Puedes añadir más nombres y productos abajo, en «Lista de relaciones públicas».</p>' +
+    '<p><b>Unidades y ventas:</b> lo que dice Ágora en los días cargados del periodo elegido. Son los mismos datos del panel de socios.</p>' +
+    '<p><b>Qué no cuenta:</b> los productos clasificados como «' + esc(T.CFG.excluido) + '» o «' + esc(T.CFG.musicos) + '» quedan fuera, igual que en el resto de la aplicación.</p>' +
+    '<p><b>% de las ventas:</b> la parte que suponen los productos de RR.PP. sobre todas las ventas del periodo.</p></details>' +
+    '<div class="rr-barra"><div class="seg scroll" role="group" aria-label="Periodo">' + tabs.map(function(t){ return '<button type="button" data-act="rper" data-v="' + t[0] + '" aria-pressed="' + (R.per === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></div>';
+  if (R.per === 'rango'){
+    h += '<div class="rr-fila" style="margin-top:12px"><div><label for="rr-desde">Desde</label><input class="campo" type="date" id="rr-desde" data-f="rrdesde" value="' + esc(p.desde) + '"></div><div><label for="rr-hasta">Hasta</label><input class="campo" type="date" id="rr-hasta" data-f="rrhasta" value="' + esc(p.hasta) + '"></div></div>';
+  } else {
+    h += '<div class="rr-nav"><button type="button" class="flecha" data-act="rmover" data-v="-1" aria-label="Periodo anterior"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><b>' + esc(p.etiqueta) + '</b><button type="button" class="flecha" data-act="rmover" data-v="1" aria-label="Periodo siguiente"' + (p.hasta >= ult ? ' disabled' : '') + '><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button></div>';
+  }
+  if (p.faltan > 0) h += '<div class="aviso warn">En este periodo ' + (p.faltan === 1 ? 'falta 1 día' : 'faltan ' + p.faltan + ' días') + ' por cargar' + (p.enCurso ? ' (el periodo aún no ha terminado)' : '') + '. El informe solo suma los ' + p.fechas.length + ' ' + plural(p.fechas.length, 'día cargado', 'días cargados') + '.</div>';
+  else if (p.enCurso) h += '<div class="aviso info">El periodo aún no ha terminado: se muestra hasta el ' + esc(T.fmtFecha(p.hastaEf)) + '.</div>';
+  if (!p.fechas.length) return h + '<div class="vacio"><b>No hay ventas cargadas en este periodo</b>Prueba con otro.</div></section>' + vistaGestionRr();
+  if (R.msg && !R.guardando && R.msg.t === 'err') h += '<div class="aviso err" role="alert">' + esc(R.msg.x) + '</div>';
+  var pct = inf.ventas.c ? inf.total.c / inf.ventas.c * 100 : 0;
+  h += '<div class="rr-kpis"><div class="rr-kpi"><b>' + T.fmtEur(inf.total.c) + '</b><span>ventas de RR.PP.</span></div><div class="rr-kpi"><b>' + T.fmtNum(inf.total.u) + '</b><span>unidades</span></div><div class="rr-kpi"><b>' + T.fmtPct(pct) + '</b><span>de las ventas del periodo</span></div><div class="rr-kpi"><b>' + inf.lista.filter(function(x){ return x.u || x.c; }).length + ' de ' + inf.lista.length + '</b><span>RR.PP. con ventas</span></div></div>';
+  if (inf.apartados.u || inf.apartados.c) h += '<p class="peq-txt">Nota: ' + inf.apartados.n + ' ' + plural(inf.apartados.n, 'producto con nombre de RR.PP. está', 'productos con nombre de RR.PP. están') + ' clasificados como cupones o músicos y no se cuentan (' + T.fmtNum(inf.apartados.u) + ' uds.).</p>';
+  h += '<div class="rr-botones"><button type="button" class="btn" data-act="rr-xlsx">Descargar Excel</button></div>';
+  h += '<h3 class="rr-h3">Por relaciones públicas</h3><div class="rr-scroll"><table class="rr-tabla"><thead><tr><th>RR.PP.</th><th class="n">Uds.</th><th class="n">Ventas</th><th class="n">% RR.PP.</th><th class="n">Días</th></tr></thead><tbody>' +
+    inf.lista.map(function(x){ return '<tr' + (x.u || x.c ? '' : ' class="cero"') + '><td><b>' + esc(nomRr(x.n)) + '</b></td><td class="n">' + T.fmtNum(x.u) + '</td><td class="n">' + T.fmtEur(x.c) + '</td><td class="n">' + (inf.total.c ? T.fmtPct(x.c / inf.total.c * 100, 0) : '–') + '</td><td class="n">' + x.dias + '</td></tr>'; }).join('') +
+    '<tr class="tot"><td>Total</td><td class="n">' + T.fmtNum(inf.total.u) + '</td><td class="n">' + T.fmtEur(inf.total.c) + '</td><td class="n">100 %</td><td class="n">' + inf.nDias + ' ' + plural(inf.nDias, 'día', 'días') + '</td></tr></tbody></table></div>';
+  h += '<h3 class="rr-h3">Productos de cada uno</h3><p class="sub-txt" style="margin-top:0">Toca un nombre para ver qué ha vendido. Si algún producto no debería estar, pulsa «No es RR.PP.».</p>' +
+    inf.lista.filter(function(x){ return x.prods.length; }).map(function(x){
+      return '<details class="rr-prods" data-rr="' + esc(x.n) + '"' + (R.abiertos[x.n] ? ' open' : '') + '><summary><b>' + esc(nomRr(x.n)) + '</b><span>' + T.fmtNum(x.u) + ' uds. · ' + T.fmtEur(x.c) + '</span></summary><ul class="rr-lp">' +
+        x.prods.map(function(pr){ return '<li><div><b>' + esc(pr.n) + '</b><small>' + T.fmtNum(pr.u) + ' uds. · ' + T.fmtEur(pr.c) + '</small></div>' + (RRP.motivo(R.cfg, pr.k) === 'nombre' ? '<button type="button" class="btn claro peq" data-act="rr-excluir" data-v="' + esc(pr.k) + '"' + (R.guardando ? ' disabled' : '') + '>No es RR.PP.</button>' : (RRP.motivo(R.cfg, pr.k) === 'manual' ? '<button type="button" class="btn claro peq" data-act="rr-quitar-manual" data-v="' + esc(pr.k) + '"' + (R.guardando ? ' disabled' : '') + '>Quitar</button>' : '')) + '</li>'; }).join('') + '</ul></details>';
+    }).join('') || '<p class="suave">Ningún RR.PP. ha vendido nada en este periodo.</p>';
+  var largo = T.isoNum(p.hastaEf) - T.isoNum(p.desde) + 1 > 62;
+  h += '<h3 class="rr-h3">' + (largo ? 'Mes a mes' : 'Día a día') + ' (unidades por RR.PP.)</h3>' + tablaDiasRr(inf, nombres, largo);
+  return h + '</section>' + vistaGestionRr();
+}
+/* Excel (.xlsx) construido aquí mismo con JSZip */
+function xmlEsc(s){ return String(s).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, ''); }
+function colLetra(i){ var s = ''; i++; while (i > 0){ var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+function hojaXml(filas, anchos){
+  var x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>' +
+    anchos.map(function(a, i){ return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + a + '" customWidth="1"/>'; }).join('') + '</cols><sheetData>';
+  filas.forEach(function(f, ri){
+    x += '<row r="' + (ri + 1) + '">';
+    f.forEach(function(v, ci){
+      var ref = colLetra(ci) + (ri + 1), est = ri === 0 ? ' s="1"' : '';
+      if (v && typeof v === 'object') x += '<c r="' + ref + '" s="2"><v>' + (v.e / 100) + '</v></c>';
+      else if (typeof v === 'number') x += '<c r="' + ref + '"' + est + '><v>' + v + '</v></c>';
+      else x += '<c r="' + ref + '"' + est + ' t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(v) + '</t></is></c>';
+    });
+    x += '</row>';
+  });
+  return x + '</sheetData></worksheet>';
+}
+async function construirXlsx(hojas){
+  if (typeof JSZip === 'undefined') throw new Error('No se ha podido cargar el generador de Excel. Recarga la página.');
+  var z = new JSZip(), n = hojas.length, i;
+  var ov = '', rel = '', sh = '';
+  for (i = 1; i <= n; i++){
+    ov += '<Override PartName="/xl/worksheets/sheet' + i + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
+    rel += '<Relationship Id="rId' + i + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + i + '.xml"/>';
+    sh += '<sheet name="' + xmlEsc(hojas[i - 1].nombre) + '" sheetId="' + i + '" r:id="rId' + i + '"/>';
+    z.file('xl/worksheets/sheet' + i + '.xml', hojaXml(hojas[i - 1].filas, hojas[i - 1].anchos));
+  }
+  z.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + ov + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>');
+  z.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+  z.file('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sh + '</sheets></workbook>');
+  z.file('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rel + '<Relationship Id="rId' + (n + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
+  z.file('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFD400"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>');
+  return z.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+async function descargarRr(){
+  var R = S.rr, p = periodoRr(); if (!R.cfg || !p || !p.fechas.length) return;
+  try {
+    var inf = RRP.informe(S.m, R.cfg, p.fechas), largo = T.isoNum(p.hastaEf) - T.isoNum(p.desde) + 1 > 62, serie = largo ? RRP.porMes(inf.serie) : inf.serie;
+    var cols = inf.lista.map(function(x){ return x.n; }).filter(function(n){ return serie.some(function(f){ return f.por[n]; }); });
+    var resumen = [['Relaciones públicas', 'Unidades', 'Ventas (€)', '% sobre RR.PP.', 'Días con ventas']].concat(inf.lista.map(function(x){ return [nomRr(x.n), x.u, { e: x.c }, inf.total.c ? Math.round(x.c / inf.total.c * 1000) / 10 : 0, x.dias]; }));
+    resumen.push(['Total', inf.total.u, { e: inf.total.c }, 100, inf.nDias]); resumen.push([]); resumen.push(['Periodo', p.etiqueta]); resumen.push(['Días cargados', inf.nDias]); resumen.push(['Ventas totales del periodo (€)', { e: inf.ventas.c }]);
+    var prods = [['Relaciones públicas', 'Producto', 'Unidades', 'Ventas (€)']]; inf.lista.forEach(function(x){ x.prods.forEach(function(pr){ prods.push([nomRr(x.n), pr.n, pr.u, { e: pr.c }]); }); });
+    var dias = [[largo ? 'Mes' : 'Día'].concat(cols.map(nomRr), ['Unidades', 'Ventas (€)'])].concat(serie.map(function(f){ return [largo ? T.nombreMes(f.f + '-01') : T.fmtFecha(f.f)].concat(cols.map(function(n){ return f.por[n] || 0; }), [f.u, { e: f.c }]); }));
+    var blob = await construirXlsx([
+      { nombre: 'Por RR.PP.', filas: resumen, anchos: [30, 12, 14, 16, 16] },
+      { nombre: 'Productos', filas: prods, anchos: [22, 44, 12, 14] },
+      { nombre: largo ? 'Por mes' : 'Por día', filas: dias, anchos: [22].concat(cols.map(function(){ return 12; }), [12, 14]) }]);
+    var a = document.createElement('a'), d1 = p.desde, d2 = p.hastaEf || p.hasta;
+    a.href = URL.createObjectURL(blob); a.download = 'relaciones_publicas_' + d1 + '_' + d2 + '.xlsx'; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+  } catch (e){ R.msg = { t: 'err', x: e.message }; pintar(); }
+}
+async function cargarRr(){
+  var R = S.rr; R.cargando = true; R.err = null; pintar();
+  try { var j = await llamar('rrppLeer', {}); R.cfg = j.cfg; }
+  catch (e){ if (!(e && e.silencioso)) R.err = e.message + (/no v[aá]lida/i.test(e.message) ? ' Falta actualizar el servicio de Google con la última versión de Codigo.gs.' : ''); }
+  R.cargando = false; pintar();
+}
+async function guardarRr(cfg, texto){
+  var R = S.rr; R.guardando = true; R.msg = null; pintar();
+  try { var j = await llamar('rrppGuardar', { cfg: cfg }); R.cfg = j.cfg; R.msg = { t: 'ok', x: texto }; }
+  catch (e){ if (e && e.silencioso) return; R.msg = { t: 'err', x: e.message }; }
+  R.guardando = false; pintar();
+}
 function marco(){
   var ses = getSes();
   app.innerHTML = '<header class="cab"><div class="cab-in">' + MARCA + '<div class="cab-txt"><b>Carga de ventas</b><small>' + esc(ses ? ses.nombre : '') + ' · <button type="button" class="enlace" data-act="salir">Salir</button></small></div></div></header>' +
-    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['cargar', 'Cargar'], ['clas', 'Clasificación'], ['dias', 'Días'], ['acceso', 'Acceso']].map(function(t){
+    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['cargar', 'Cargar'], ['clas', 'Clasificación'], ['dias', 'Días'], ['informes', 'Informes'], ['acceso', 'Acceso']].map(function(t){
       return '<button type="button" role="tab" class="tab" data-act="tab" data-v="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></nav><main class="pag" id="pag"></main>';
   pintar();
 }
 function pintar(){
   var el = document.getElementById('pag'); if (!el) return;
   var y = window.pageYOffset;
-  el.innerHTML = S.tab === 'cargar' ? vistaCargar() : (S.tab === 'clas' ? vistaClasificacion() : (S.tab === 'acceso' ? vistaAcceso() : vistaDias()));
+  el.innerHTML = S.tab === 'cargar' ? vistaCargar() : (S.tab === 'clas' ? vistaClasificacion() : (S.tab === 'acceso' ? vistaAcceso() : (S.tab === 'informes' ? vistaInformes() : vistaDias())));
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function(b){ b.setAttribute('aria-selected', String(b.dataset.v === S.tab)); });
   ligarZona(); window.scrollTo(0, y);
 }
@@ -1141,7 +1430,7 @@ document.addEventListener('click', function(ev){
   var a = b.dataset.act, v = b.dataset.v;
   if (a === 'entrar') return entrar();
   if (a === 'salir'){ limpiarSes(); return pintarLogin(); }
-  if (a === 'tab'){ S.tab = v; S.msg = null; S.confBorrar = null; S.confQuitar = false; S.claveA = ''; S.claveB = ''; pintar(); if (v === 'acceso') cargarClave(); return; }
+  if (a === 'tab'){ S.tab = v; S.msg = null; S.confBorrar = null; S.confQuitar = false; S.claveA = ''; S.claveB = ''; pintar(); if (v === 'acceso') cargarClave(); if (v === 'informes'){ S.rr.msg = null; if (!S.rr.cfg) cargarRr(); } return; }
   if (a === 'clave-guardar') return guardarClave();
   if (a === 'clave-quitar'){ S.confQuitar = true; return pintar(); }
   if (a === 'clave-quitar-no'){ S.confQuitar = false; return pintar(); }
@@ -1156,12 +1445,39 @@ document.addEventListener('click', function(ev){
   if (a === 'borrar'){ S.confBorrar = v; return pintar(); }
   if (a === 'borrar-no'){ S.confBorrar = null; return pintar(); }
   if (a === 'borrar-si') return borrarDia(v);
+  if (a === 'rper'){ S.rr.per = v; S.rr.ref = ''; if (v === 'rango'){ var u0 = T.ultimaFecha(S.m); S.rr.hasta = u0 || ''; S.rr.desde = u0 ? T.sumarDias(u0, -29) : ''; } return pintar(); }
+  if (a === 'rmover'){ moverRr(+v); return pintar(); }
+  if (a === 'rr-reintentar') return cargarRr();
+  if (a === 'rr-xlsx') return descargarRr();
+  if (a === 'rr-add-nombre'){
+    var inp = document.getElementById('rr-nombre'), n = RRP.nombreValido(inp ? inp.value : ''), cfg = RRP.copiar(S.rr.cfg);
+    if (!n){ S.rr.msg = { t: 'err', x: 'Escribe solo el nombre, una palabra (de 2 a 30 letras o cifras). Por ejemplo: Carlos.' }; return pintar(); }
+    if (cfg.nombres.indexOf(n) >= 0){ S.rr.msg = { t: 'err', x: T.titulo(n) + ' ya está en la lista.' }; return pintar(); }
+    cfg.nombres.push(n); return guardarRr(cfg, T.titulo(n) + ' añadido: ya cuentan todos los productos que empiezan por ese nombre.');
+  }
+  if (a === 'rr-quitar-nombre'){
+    var nq = (S.rr.cfg.nombres.indexOf(v) >= 0) ? v : null; if (!nq) return;
+    if (!window.confirm('¿Quitar a ' + T.titulo(nq) + ' de la lista? Sus productos dejarán de salir en el informe (no se borra ninguna venta).')) return;
+    var c2 = RRP.copiar(S.rr.cfg); c2.nombres = c2.nombres.filter(function(x){ return x !== nq; });
+    Object.keys(c2.manual).forEach(function(k){ if (c2.manual[k] === nq) delete c2.manual[k]; });
+    return guardarRr(c2, T.titulo(nq) + ' quitado de la lista.');
+  }
+  if (a === 'rr-asignar'){
+    var sel = b.parentNode.querySelector('select'), nom = sel ? sel.value : ''; if (!nom) return;
+    var c3 = RRP.copiar(S.rr.cfg); c3.manual[v] = nom; c3.excluidos = c3.excluidos.filter(function(x){ return x !== v; });
+    return guardarRr(c3, 'Producto asignado a ' + T.titulo(nom) + '.');
+  }
+  if (a === 'rr-quitar-manual'){ var c4 = RRP.copiar(S.rr.cfg); delete c4.manual[v]; return guardarRr(c4, 'Producto quitado de la asignación manual.'); }
+  if (a === 'rr-excluir'){ var c5 = RRP.copiar(S.rr.cfg); delete c5.manual[v]; if (c5.excluidos.indexOf(v) < 0) c5.excluidos.push(v); return guardarRr(c5, 'Producto apartado del informe de RR.PP.'); }
+  if (a === 'rr-devolver'){ var c6 = RRP.copiar(S.rr.cfg); c6.excluidos = c6.excluidos.filter(function(x){ return x !== v; }); return guardarRr(c6, 'Producto incluido de nuevo.'); }
 });
+document.addEventListener('toggle', function(ev){ var d = ev.target; if (!d || !d.id && !d.dataset) return; if (d.id === 'rr-ayuda') S.rr.ayuda = d.open; else if (d.dataset && d.dataset.rr) S.rr.abiertos[d.dataset.rr] = d.open; }, true);
 function pedirNombre(txt){ var n = window.prompt(txt); return n ? limpiarTxt(n) : ''; }
 document.addEventListener('change', function(ev){
   var t = ev.target;
   if (t && t.id === 'ver-claves'){ ['claveNueva', 'claveRepite'].forEach(function(id){ var i = document.getElementById(id); if (i) i.type = t.checked ? 'text' : 'password'; }); return; }
   var f = t.dataset && t.dataset.f; if (!f) return;
+  if (f === 'rrdesde' || f === 'rrhasta'){ if (T.esIso(t.value)){ if (f === 'rrdesde') S.rr.desde = t.value; else S.rr.hasta = t.value; } return pintar(); }
   if (f === 'fecha'){ var it = S.items.filter(function(i){ return String(i.id) === t.dataset.id; })[0]; if (it){ it.fecha = T.esIso(t.value) ? t.value : ''; it.fechaAuto = false; } return pintar(); }
   if (f === 'revisado'){ S.revisado = t.checked; return pintar(); }
   if (f === 'revisadoPend'){ S.revisadoPend = t.checked; return pintar(); }
@@ -1184,6 +1500,10 @@ document.addEventListener('change', function(ev){
 });
 document.addEventListener('input', function(ev){
   var t = ev.target;
+  if (t.dataset && t.dataset.f === 'rrq'){
+    S.rr.q = t.value; var pos2 = t.selectionStart; pintar(); var n2 = document.querySelector('[data-f="rrq"]'); if (n2){ n2.focus(); try { n2.setSelectionRange(pos2, pos2); } catch (e){} }
+    return;
+  }
   if (t.dataset && t.dataset.f === 'busca'){
     S.busca = t.value; S.verTodas = false;
     var pos = t.selectionStart; pintar(); var n = document.querySelector('[data-f="busca"]'); if (n){ n.focus(); try { n.setSelectionRange(pos, pos); } catch (e){} }
