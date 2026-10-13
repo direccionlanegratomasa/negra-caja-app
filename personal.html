@@ -73,6 +73,7 @@ body{ font-size:17px; }
 .pestanas button{ flex:1; min-height:52px; border:2px solid var(--tinta); border-radius:10px; background:var(--blanco); font-weight:700; font-size:16px; }
 .pestanas button[aria-pressed="true"]{ background:var(--tinta); color:var(--amarillo); }
 @media (max-width:480px){ .pestanas{ flex-wrap:wrap; } .pestanas button{ flex:1 1 calc(50% - 4px); } }
+tr.fuerte td{ font-weight:700; background:var(--amarillo-claro, #FFF6BF); border-top:2px solid var(--tinta, #1C1A12); }
 .drop{ border:3px dashed var(--tinta); border-radius:12px; padding:22px 16px; text-align:center; background:var(--amarillo-claro); }
 .drop input{ display:block; margin:12px auto 0; max-width:100%; font-size:16px; }
 .num{ display:inline-block; min-width:2em; text-align:center; border:2px solid var(--tinta); border-radius:999px; padding:0 8px; font-weight:700; margin-right:6px; background:var(--blanco); }
@@ -336,9 +337,54 @@ function ajustarPeriodo(){
 }
 async function cargarInforme(){
   var I = S.inf; ajustarPeriodo(); I.r = null; I.cargando = true; S.msg = null; pintar();
+  I.ant = null;
   try { I.r = await pedir('asistenciaRango', { desde: I.desde, hasta: I.hasta }); }
   catch (e){ if (e.codigo === 'SESION'){ caducada(); } else S.msg = { texto: e.message }; }
   I.cargando = false; pintar();
+  if (I.r && I.r.totales.registros) cargarAnterior(I.r);
+}
+/* Mismo tramo anterior, para comparar el coste. Si falla, el informe sigue sin comparación. */
+async function cargarAnterior(r){
+  var I = S.inf, d1, d2;
+  if (I.per === 'rango'){ var dias = Math.round((Date.parse(r.hasta) - Date.parse(r.desde)) / 86400000) + 1; d1 = isoMas(r.desde, -dias); d2 = isoMas(r.desde, -1); }
+  else { var q = periodoDe(I.per, moverRef(I.per, I.ref, -1)); d1 = q.desde; d2 = q.hasta; }
+  try { var a = await pedir('asistenciaRango', { desde: d1, hasta: d2 }); if (I.r === r && a.totales.registros){ I.ant = a; I.antEt = 'el periodo anterior (' + fechaDM(d1) + ' – ' + fechaDM(d2) + ')'; pintar(); } }
+  catch (e){}
+}
+function eurC(c){ return (Math.round(c) / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+function eur0(c){ return (Math.round(c) / 100).toLocaleString('es-ES', { maximumFractionDigits: 0 }) + ' €'; }
+function costeActuaciones(r){
+  var P = r.pagos, F = r.tarifas, T = P.total, E = P.empresa, A = P.autonomos, t = r.totales, ant = S.inf.ant && S.inf.ant.pagos ? S.inf.ant.pagos.total : null;
+  function fila(a, b, c, fuerte){ return '<tr' + (fuerte ? ' class="fuerte"' : '') + '><td>' + a + '</td><td class="n"><b>' + b + '</b></td><td style="white-space:normal;min-width:210px">' + (c || '') + '</td></tr>'; }
+  var h = '<section class="caja"><h2>Coste de las actuaciones</h2><div class="kpis">' +
+    '<div class="kpi"><b>' + T.act + '</b><span>actuaciones (' + T.noche + ' a las 00:30 de vie/sáb)</span></div>' +
+    '<div class="kpi"><b>' + eur0(T.base) + '</b><span>coste sin IVA</span></div>' +
+    '<div class="kpi"><b>' + eur0(T.iva) + '</b><span>IVA (' + F.iva + ' %)</span></div>' +
+    '<div class="kpi"><b>' + eur0(T.total) + '</b><span>coste con IVA</span></div></div>' +
+    '<div class="scroll"><table><thead><tr><th>Concepto</th><th class="n">Importe</th><th>Cómo se calcula</th></tr></thead><tbody>' +
+    fila('Factura de la empresa de músicos (sin IVA)', eurC(E.base), E.act + ' ' + (E.act === 1 ? 'actuación' : 'actuaciones') + ': ' + (E.act - E.noche) + ' × ' + eurC(F.fact) + ' y ' + E.noche + ' × ' + eurC(F.factNoche) + ' (00:30 de viernes y sábado).') +
+    fila('IVA de la empresa (' + F.iva + ' %)', eurC(E.iva), 'La empresa siempre cobra más IVA.') +
+    fila('Total a pagar a la empresa', eurC(E.total), 'Factura más IVA.', true) +
+    fila('Autónomos: factura (sin IVA)', eurC(A.base), A.act ? A.act + ' ' + (A.act === 1 ? 'actuación' : 'actuaciones') + ' a las tarifas de la empresa (' + eurC(F.fact) + ' y ' + eurC(F.factNoche) + '). La empresa no participa: se les considera empresa.' : 'Sin actuaciones de autónomos en el periodo.') +
+    fila('Autónomos: IVA (' + F.iva + ' %)', eurC(A.iva), '') +
+    fila('Autónomos: total', eurC(A.total), 'Factura más IVA.', true) +
+    fila('Coste total sin IVA', eurC(T.base), 'Empresa más autónomos.') +
+    fila('Coste total con IVA', eurC(T.total), 'Lo que sale de caja en el periodo.', true) +
+    fila('Cobran los músicos de la empresa', eurC(E.cobra), 'A ' + eurC(F.pago) + ' por actuación y ' + eurC(F.pagoNoche) + ' en el turno de las 00:30 de viernes y sábado.') +
+    fila('Margen de la empresa', eurC(E.margen), 'Su factura menos lo que cobran los músicos' + (E.base ? ' (' + Math.round(E.margen / E.base * 1000) / 10 + ' % de su factura)' : '') + '.') +
+    fila('Coste medio por actuación', T.act ? eurC(T.base / T.act) : '–', 'Sin IVA' + (T.act ? ' (con IVA: ' + eurC(T.total / T.act) + ')' : '') + '.') +
+    fila('Coste medio por día con actuaciones', t.dias ? eurC(T.base / t.dias) : '–', 'Sin IVA, entre ' + t.dias + ' ' + (t.dias === 1 ? 'día' : 'días') + ' con registro.');
+  if (ant){
+    var dv = ant.base ? (T.base - ant.base) / ant.base * 100 : null;
+    h += fila('Coste sin IVA en ' + esc(S.inf.antEt || 'el periodo anterior'), eurC(ant.base), (dv == null ? '' : (dv >= 0 ? 'Ahora cuesta un ' + String(Math.round(dv * 10) / 10).replace('.', ',') + ' % más.' : 'Ahora cuesta un ' + String(Math.round(-dv * 10) / 10).replace('.', ',') + ' % menos.')) + ' Actuaciones entonces: ' + ant.act + '.');
+  }
+  h += '</tbody></table></div><p class="suave" style="margin:10px 0 0">El IVA es IVA soportado y normalmente se puede deducir; confírmalo con tu gestor. Si cambian las tarifas, hay que cambiarlas en el servicio (bloque MUSICOS de Codigo.gs).</p></section><div class="espacio"></div>';
+  var pp = r.porPersona.slice().sort(function(a, b){ return (b.total - a.total) || (a.n < b.n ? -1 : 1); }).filter(function(x){ return x.act; });
+  h += '<section class="caja"><h2>Por músico</h2><div class="scroll"><table><thead><tr><th>Músico</th><th>Tipo</th><th class="n">Actuaciones</th><th class="n">00:30 vie/sáb</th><th class="n">Cobra el músico</th><th class="n">Factura sin IVA</th><th class="n">Total con IVA</th></tr></thead><tbody>' +
+    pp.map(function(x){ return '<tr><td>' + esc(x.n) + '</td><td>' + (x.auto ? 'Autónomo' : 'Empresa') + '</td><td class="n">' + x.act + '</td><td class="n">' + x.noche + '</td><td class="n">' + eurC(x.cobra) + '</td><td class="n">' + eurC(x.base) + '</td><td class="n">' + eurC(x.total) + '</td></tr>'; }).join('') +
+    '<tr class="fuerte"><td>Total</td><td></td><td class="n">' + T.act + '</td><td class="n">' + T.noche + '</td><td class="n">' + eurC(T.cobra) + '</td><td class="n">' + eurC(T.base) + '</td><td class="n">' + eurC(T.total) + '</td></tr></tbody></table></div></section><div class="espacio"></div>';
+  if (r.porDia.length && r.diasPeriodo <= 62) h += '<section class="caja"><details><summary>Coste día a día (' + r.porDia.length + ')</summary><div class="scroll"><table><thead><tr><th>Día</th><th class="n">Actuaciones</th><th class="n">Sin IVA</th><th class="n">Con IVA</th></tr></thead><tbody>' + r.porDia.slice().reverse().map(function(x){ return '<tr><td>' + esc(fechaDM(x.f)) + '</td><td class="n">' + x.act + (x.noche ? ' <span class="suave">(' + x.noche + ' a las 00:30)</span>' : '') + '</td><td class="n">' + eurC(x.base) + '</td><td class="n">' + eurC(x.total) + '</td></tr>'; }).join('') + '</tbody></table></div></details></section><div class="espacio"></div>';
+  return h;
 }
 function vistaInformes(){
   var I = S.inf, h = '', r = I.r, per = I.per;
@@ -357,6 +403,7 @@ function vistaInformes(){
     '<p><b>Tarde:</b> llegó más de ' + ((r && r.toleranciaMin) || 5) + ' minutos después de la hora del turno (17:00, 21:30 o 00:30). Hasta esos minutos se considera a tiempo.</p>' +
     '<p><b>Diferencia media:</b> minutos de media respecto a la hora del turno. Con signo «+» llega después, con «−» llega antes.</p>' +
     '<p><b>Sin ningún registro:</b> personas autorizadas que no aparecen ni una vez en el periodo.</p>' +
+    '<p><b>Coste de las actuaciones:</b> cada llegada marcada de un músico es una actuación. La empresa que lleva a los músicos cobra 90 € por actuación (140 € en el turno de las 00:30 de viernes y sábado) más IVA, y paga a cada músico 85 € (110 € en ese turno). Los autónomos no pasan por la empresa: se les considera empresa y facturan 90 € o 140 € más IVA. El viernes o sábado es el de la jornada, como en la tablet (hasta las 06:00 sigue siendo la jornada anterior).</p>' +
     '<p>Si el periodo llega hasta hoy o más allá, el informe se corta en el día de servicio actual. Máximo 370 días.</p></details>';
   if (I.cargando) return h + '<section class="caja"><p class="suave" style="margin:0">Preparando el informe…</p></section>';
   if (!r) return h + '<section class="caja"><p class="suave" style="margin:0">Elige un periodo para ver el informe.</p></section>';
@@ -371,13 +418,14 @@ function vistaInformes(){
     '<div class="kpi"><b>' + pct(t.tarde, t.registros) + '</b><span>llegaron tarde (' + t.tarde + ')</span></div></div>' +
     '<p class="suave" style="margin:0">Diferencia media con la hora del turno: <b>' + esc(signo(t.mediaDif)) + ' min</b>.</p>' +
     '<div class="botones"><button type="button" class="btn" data-act="xlsx">Descargar Excel</button><button type="button" class="btn claro" data-act="correo"' + (I.env ? ' disabled' : '') + '>' + (I.env ? 'Enviando…' : 'Enviar por correo') + '</button></div></section><div class="espacio"></div>';
+  if (r.pagos) h += costeActuaciones(r);
   h += '<section class="caja"><h2>Por turno</h2><table><thead><tr><th>Turno</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Tarde</th></tr></thead><tbody>' +
     r.porTurno.map(function(x){ return '<tr><td><b>' + esc(x.turno) + '</b></td><td class="n">' + x.registros + '</td><td class="n">' + x.personas + '</td><td class="n">' + x.tarde + (x.registros ? ' <span class="suave">(' + pct(x.tarde, x.registros) + ')</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></section><div class="espacio"></div>';
   h += '<section class="caja"><h2>Por persona</h2><div class="scroll"><table><thead><tr><th>Persona</th><th class="n">Días</th><th class="n">Turnos</th><th class="n">Tarde</th><th class="n">Media (min)</th><th class="n">Máx. tarde</th></tr></thead><tbody>' +
     r.porPersona.map(function(x){ return '<tr><td>' + esc(x.n) + '</td><td class="n">' + x.dias + '</td><td class="n">' + x.turnos + '</td><td class="n' + (x.tarde ? ' tardio' : '') + '">' + x.tarde + '</td><td class="n">' + esc(signo(x.media)) + '</td><td class="n">' + (x.maxTarde ? esc(signo(x.maxTarde)) : '–') + '</td></tr>'; }).join('') + '</tbody></table></div></section>';
   if (r.sinRegistro.length) h += '<div class="espacio"></div><section class="caja"><h2>Sin ningún registro · ' + r.sinRegistro.length + '</h2><p class="suave">Autorizadas que no han llegado ni una vez en este periodo.</p>' + chips(r.sinRegistro) + '</section>';
-  if (r.diasPeriodo > 7 && r.porSemana.length > 1) h += '<div class="espacio"></div><section class="caja"><h2>Por semana</h2><table><thead><tr><th>Semana del</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Días</th></tr></thead><tbody>' + r.porSemana.map(function(s){ return '<tr><td>' + esc(fechaDM(s.desde)) + '</td><td class="n">' + s.registros + '</td><td class="n">' + s.personas + '</td><td class="n">' + s.dias + '</td></tr>'; }).join('') + '</tbody></table></section>';
-  if (r.diasPeriodo > 31 && r.porMes.length > 1) h += '<div class="espacio"></div><section class="caja"><h2>Por mes</h2><table><thead><tr><th>Mes</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Días</th></tr></thead><tbody>' + r.porMes.map(function(s){ return '<tr><td>' + esc(mesTexto(s.mes)) + '</td><td class="n">' + s.registros + '</td><td class="n">' + s.personas + '</td><td class="n">' + s.dias + '</td></tr>'; }).join('') + '</tbody></table></section>';
+  if (r.diasPeriodo > 7 && r.porSemana.length > 1) h += '<div class="espacio"></div><section class="caja"><h2>Por semana</h2><table><thead><tr><th>Semana del</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Días</th><th class="n">Coste sin IVA</th></tr></thead><tbody>' + r.porSemana.map(function(s){ return '<tr><td>' + esc(fechaDM(s.desde)) + '</td><td class="n">' + s.registros + '</td><td class="n">' + s.personas + '</td><td class="n">' + s.dias + '</td><td class="n">' + eurC(s.base || 0) + '</td></tr>'; }).join('') + '</tbody></table></section>';
+  if (r.diasPeriodo > 31 && r.porMes.length > 1) h += '<div class="espacio"></div><section class="caja"><h2>Por mes</h2><table><thead><tr><th>Mes</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Días</th><th class="n">Coste sin IVA</th></tr></thead><tbody>' + r.porMes.map(function(s){ return '<tr><td>' + esc(mesTexto(s.mes)) + '</td><td class="n">' + s.registros + '</td><td class="n">' + s.personas + '</td><td class="n">' + s.dias + '</td><td class="n">' + eurC(s.base || 0) + '</td></tr>'; }).join('') + '</tbody></table></section>';
   if (r.detalle.length && r.diasPeriodo <= 62) h += '<div class="espacio"></div><section class="caja"><details><summary>Ver cada llegada (' + r.detalle.length + ')</summary><div class="scroll"><table><thead><tr><th>Fecha</th><th>Turno</th><th>Persona</th><th class="n">Hora</th><th class="n">Dif.</th></tr></thead><tbody>' + r.detalle.map(function(x){ return '<tr><td>' + esc(fechaDM(x[0])) + '</td><td>' + esc(x[1]) + '</td><td>' + esc(x[2]) + '</td><td class="n">' + esc(x[3]) + '</td><td class="n' + (x[4] > r.toleranciaMin ? ' tardio' : '') + '">' + esc(signo(x[4])) + '</td></tr>'; }).join('') + '</tbody></table></div></details></section>';
   else if (r.detalle.length) h += '<p class="suave" style="margin-top:14px">El detalle de cada llegada (' + r.detalle.length + ') va en el Excel.</p>';
   return h;
@@ -399,22 +447,59 @@ function hojaXml(filas, anchos){
   });
   return x + '</sheetData></worksheet>';
 }
-async function construirXlsx(r){
-  if (typeof JSZip === 'undefined') throw new Error('No se ha podido cargar el generador de Excel. Recarga la página.');
-  var z = new JSZip(), t = r.totales;
+function eurN(c){ return Math.round(c) / 100; }
+function hojasInforme(r){
+  var t = r.totales, P = r.pagos, F = r.tarifas, T = P.total, E = P.empresa, A = P.autonomos, dn = t.dias || 0;
   var res = [['Persona', 'Días', 'Turnos', 'Llegadas tarde', 'Diferencia media (min)', 'Máx. tarde (min)']].concat(r.porPersona.map(function(x){ return [x.n, x.dias, x.turnos, x.tarde, x.media, x.maxTarde]; }));
   res.push([]); res.push(['Periodo', fechaDM(r.desde) + ' - ' + fechaDM(r.hasta)]); res.push(['Llegadas', t.registros]); res.push(['Personas distintas', t.personas]); res.push(['Días con registro', t.dias]); res.push(['Llegadas tarde (más de ' + r.toleranciaMin + ' min)', t.tarde]);
   if (r.sinRegistro.length) res.push(['Sin ningún registro', r.sinRegistro.join(', ')]);
-  var det = [['Fecha', 'Turno', 'Persona', 'Hora de llegada', 'Diferencia (min)']].concat(r.detalle.map(function(x){ return [fechaDM(x[0]), x[1], x[2], x[3], x[4]]; }));
+  var det = [['Fecha', 'Turno', 'Persona', 'Hora de llegada', 'Diferencia (min)', 'Tipo', 'Turno especial (00:30 vie/sáb)', 'Cobra el músico (€)', 'Factura sin IVA (€)', 'IVA (€)', 'Total con IVA (€)']].concat(r.detalle.map(function(x){ var iva = Math.round(x[5] * F.iva / 100); return [fechaDM(x[0]), x[1], x[2], x[3], x[4], x[7] ? 'Autónomo' : 'Empresa', x[9] ? 'Sí' : 'No', eurN(x[6]), eurN(x[5]), eurN(iva), eurN(x[5] + iva)]; }));
   var tur = [['Turno', 'Llegadas', 'Personas', 'Tarde']].concat(r.porTurno.map(function(x){ return [x.turno, x.registros, x.personas, x.tarde]; }));
-  z.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>');
+  var ant = S.inf.ant && S.inf.ant.pagos ? S.inf.ant.pagos.total : null;
+  var cos = [['Concepto', 'Importe (€)', 'Cómo se calcula'],
+    ['Actuaciones', T.act, 'Cada llegada marcada de un músico en un turno. De ellas, ' + T.noche + ' del turno 00:30 de viernes o sábado'],
+    ['Factura de la empresa de músicos (sin IVA)', eurN(E.base), E.act + (E.act === 1 ? ' actuación' : ' actuaciones') + ': ' + (E.act - E.noche) + ' × ' + eurN(F.fact) + ' € y ' + E.noche + ' × ' + eurN(F.factNoche) + ' € (00:30 vie/sáb)'],
+    ['IVA de la empresa (' + F.iva + ' %)', eurN(E.iva), 'La empresa siempre cobra más IVA'],
+    ['Total a pagar a la empresa', eurN(E.total), 'Factura más IVA'],
+    ['Autónomos: factura directa (sin IVA)', eurN(A.base), A.act + (A.act === 1 ? ' actuación' : ' actuaciones') + ' a las tarifas de la empresa. La empresa no participa; se les considera empresa'],
+    ['Autónomos: IVA', eurN(A.iva), F.iva + ' %'],
+    ['Autónomos: total', eurN(A.total), 'Factura más IVA'],
+    ['Coste total sin IVA', eurN(T.base), 'Empresa más autónomos'],
+    ['IVA total', eurN(T.iva), ''],
+    ['Coste total con IVA', eurN(T.total), 'Lo que sale de la caja en el periodo'],
+    ['Cobran los músicos de la empresa', eurN(E.cobra), 'Tarifas de ' + eurN(F.pago) + ' € y ' + eurN(F.pagoNoche) + ' € (00:30 vie/sáb)'],
+    ['Margen de la empresa', eurN(E.margen), 'Su factura menos lo que cobran los músicos'],
+    ['Margen sobre su factura (%)', E.base ? Math.round(E.margen / E.base * 1000) / 10 : 0, ''],
+    ['Coste medio por actuación (sin IVA)', T.act ? eurN(T.base / T.act) : 0, ''],
+    ['Coste medio por actuación (con IVA)', T.act ? eurN(T.total / T.act) : 0, ''],
+    ['Coste medio por día con actuaciones (sin IVA)', dn ? eurN(T.base / dn) : 0, T.base ? '' : '']];
+  if (ant){ cos.push(['Periodo anterior: coste sin IVA', eurN(ant.base), 'Mismo tramo anterior']); cos.push(['Periodo anterior: coste con IVA', eurN(ant.total), '']); }
+  cos.push([]); cos.push(['Periodo', fechaDM(r.desde) + ' - ' + fechaDM(r.hasta), '']); cos.push(['Días con registro', dn, '']);
+  var mus = [['Músico', 'Tipo', 'Actuaciones', 'De ellas 00:30 vie/sáb', 'Cobra el músico (€)', 'Factura sin IVA (€)', 'IVA (€)', 'Total con IVA (€)', 'Margen de la empresa (€)']].concat(r.porPersona.slice().sort(function(a, b){ return (b.total - a.total) || (a.n < b.n ? -1 : 1); }).map(function(x){ return [x.n, x.auto ? 'Autónomo' : 'Empresa', x.act, x.noche, eurN(x.cobra), eurN(x.base), eurN(x.iva), eurN(x.total), eurN(x.margen)]; }));
+  mus.push(['Total', '', T.act, T.noche, eurN(T.cobra), eurN(T.base), eurN(T.iva), eurN(T.total), eurN(T.margen)]);
+  var dia = [['Día', 'Actuaciones', 'De ellas 00:30 vie/sáb', 'Coste sin IVA (€)', 'IVA (€)', 'Total con IVA (€)']].concat(r.porDia.map(function(x){ return [fechaDM(x.f), x.act, x.noche, eurN(x.base), eurN(x.iva), eurN(x.total)]; }));
+  return [
+    { nombre: 'Coste actuaciones', filas: cos, anchos: [46, 16, 70] },
+    { nombre: 'Por músico', filas: mus, anchos: [30, 12, 12, 16, 16, 16, 12, 16, 18] },
+    { nombre: 'Por día', filas: dia, anchos: [14, 12, 16, 16, 12, 16] },
+    { nombre: 'Por persona', filas: res, anchos: [30, 22, 10, 16, 22, 18] },
+    { nombre: 'Por turno', filas: tur, anchos: [12, 12, 12, 12] },
+    { nombre: 'Detalle', filas: det, anchos: [14, 10, 30, 16, 18, 12, 22, 16, 16, 12, 16] }];
+}
+async function construirXlsx(r){
+  if (typeof JSZip === 'undefined') throw new Error('No se ha podido cargar el generador de Excel. Recarga la página.');
+  var z = new JSZip();
+  var hojas = hojasInforme(r), ov = '', rel = '', sh = '';
+  hojas.forEach(function(h, i){ var n = i + 1;
+    ov += '<Override PartName="/xl/worksheets/sheet' + n + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
+    rel += '<Relationship Id="rId' + n + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + n + '.xml"/>';
+    sh += '<sheet name="' + xmlEsc(h.nombre) + '" sheetId="' + n + '" r:id="rId' + n + '"/>';
+    z.file('xl/worksheets/sheet' + n + '.xml', hojaXml(h.filas, h.anchos)); });
+  z.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' + ov + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>');
   z.file('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
-  z.file('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Por persona" sheetId="1" r:id="rId1"/><sheet name="Por turno" sheetId="2" r:id="rId2"/><sheet name="Detalle" sheetId="3" r:id="rId3"/></sheets></workbook>');
-  z.file('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
+  z.file('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + sh + '</sheets></workbook>');
+  z.file('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rel + '<Relationship Id="rId' + (hojas.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
   z.file('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFD400"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>');
-  z.file('xl/worksheets/sheet1.xml', hojaXml(res, [30, 22, 10, 16, 22, 18]));
-  z.file('xl/worksheets/sheet2.xml', hojaXml(tur, [12, 12, 12, 12]));
-  z.file('xl/worksheets/sheet3.xml', hojaXml(det, [14, 10, 30, 16, 18]));
   return z.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 async function descargarXlsx(){
