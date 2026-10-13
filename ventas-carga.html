@@ -1295,7 +1295,7 @@ function vistaInformes(){
     '<p><b>% de las ventas:</b> la parte que suponen los productos de RR.PP. sobre todas las ventas del periodo.</p></details>' +
     '<div class="rr-barra"><div class="seg scroll" role="group" aria-label="Periodo">' + tabs.map(function(t){ return '<button type="button" data-act="rper" data-v="' + t[0] + '" aria-pressed="' + (R.per === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></div>';
   if (R.per === 'rango'){
-    h += '<div class="rr-fila" style="margin-top:12px"><div><label for="rr-desde">Desde</label><input class="campo" type="date" id="rr-desde" data-f="rrdesde" value="' + esc(p.desde) + '"></div><div><label for="rr-hasta">Hasta</label><input class="campo" type="date" id="rr-hasta" data-f="rrhasta" value="' + esc(p.hasta) + '"></div></div>';
+    h += '<div class="rr-fila" style="margin-top:12px"><div><label for="rr-desde">Desde</label><input class="campo" type="date" id="rr-desde" data-f="rrdesde" value="' + esc(p.desde) + '"></div><div><label for="rr-hasta">Hasta</label><input class="campo" type="date" id="rr-hasta" data-f="rrhasta" value="' + esc(p.hasta) + '"></div></div><p class="peq-txt" style="margin:8px 0 0"><b>Mostrando:</b> del ' + esc(T.fmtFecha(p.desde)) + ' al ' + esc(T.fmtFecha(p.hastaEf || p.hasta)) + ' · ' + p.fechas.length + ' ' + plural(p.fechas.length, 'día cargado', 'días cargados') + '.</p>';
   } else {
     h += '<div class="rr-nav"><button type="button" class="flecha" data-act="rmover" data-v="-1" aria-label="Periodo anterior"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><b>' + esc(p.etiqueta) + '</b><button type="button" class="flecha" data-act="rmover" data-v="1" aria-label="Periodo siguiente"' + (p.hasta >= ult ? ' disabled' : '') + '><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button></div>';
   }
@@ -1477,7 +1477,14 @@ document.addEventListener('change', function(ev){
   var t = ev.target;
   if (t && t.id === 'ver-claves'){ ['claveNueva', 'claveRepite'].forEach(function(id){ var i = document.getElementById(id); if (i) i.type = t.checked ? 'text' : 'password'; }); return; }
   var f = t.dataset && t.dataset.f; if (!f) return;
-  if (f === 'rrdesde' || f === 'rrhasta'){ if (T.esIso(t.value)){ if (f === 'rrdesde') S.rr.desde = t.value; else S.rr.hasta = t.value; } return pintar(); }
+  if (f === 'rrdesde' || f === 'rrhasta'){
+    /* Al teclear una fecha, el navegador da por buenas fechas intermedias (p. ej. el año 0002). Solo se aceptan años razonables y se espera un momento antes de redibujar, para no perder el cursor. */
+    var okF = T.esIso(t.value) && +t.value.slice(0, 4) >= 2020 && +t.value.slice(0, 4) <= 2100;
+    if (okF){ if (f === 'rrdesde') S.rr.desde = t.value; else S.rr.hasta = t.value; }
+    clearTimeout(window.__rrT); var idF = t.id;
+    window.__rrT = setTimeout(function(){ pintar(); var e2 = document.getElementById(idF); if (e2 && document.activeElement !== e2){ try { e2.focus(); } catch (x){} } }, okF ? 350 : 900);
+    return;
+  }
   if (f === 'fecha'){ var it = S.items.filter(function(i){ return String(i.id) === t.dataset.id; })[0]; if (it){ it.fecha = T.esIso(t.value) ? t.value : ''; it.fechaAuto = false; } return pintar(); }
   if (f === 'revisado'){ S.revisado = t.checked; return pintar(); }
   if (f === 'revisadoPend'){ S.revisadoPend = t.checked; return pintar(); }
