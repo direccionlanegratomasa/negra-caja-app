@@ -799,6 +799,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = ING;
 var RRP = (function(T){
 'use strict';
 var PREDET = ['JUSTO', 'DAVID', 'JAIME', 'ROCO', 'RODOLFO', 'FEDERICO', 'BRIAN'];
+var COMISION_CENT = 200;   /* cada relaciones públicas cobra 2 € fijos por unidad vendida (importes en céntimos) */
 function porDefecto(){ return { v: 1, nombres: PREDET.slice(), manual: {}, excluidos: [] }; }
 function primera(k){ return String(k).split(/[^A-Z0-9]+/)[0] || ''; }
 function conjunto(a){ var o = Object.create(null); (a || []).forEach(function(x){ o[x] = 1; }); return o; }
@@ -857,9 +858,9 @@ function informe(m, cfg, fechas){
   });
   var lista = Object.keys(por).map(function(n){
     var o = por[n], ps = Object.keys(o.prods).map(function(k){ return o.prods[k]; }).sort(function(a, b){ return (b.c - a.c) || (b.u - a.u) || T.cmpTexto(a.n, b.n); });
-    return { n: n, u: o.u, c: o.c, dias: Object.keys(o.dias).length, prods: ps };
+    return { n: n, u: o.u, c: o.c, com: o.u * COMISION_CENT, dias: Object.keys(o.dias).length, prods: ps };
   }).sort(function(a, b){ return (b.c - a.c) || (b.u - a.u) || T.cmpTexto(a.n, b.n); });
-  var total = { u: 0, c: 0 }; lista.forEach(function(x){ total.u += x.u; total.c += x.c; });
+  var total = { u: 0, c: 0, com: 0 }; lista.forEach(function(x){ total.u += x.u; total.c += x.c; total.com += x.com; });
   return { lista: lista, total: total, ventas: tot, nDias: nDias, serie: serie, apartados: { u: ap.u, c: ap.c, n: Object.keys(ap.prods).length } };
 }
 /* Agrupa la serie diaria por mes (para periodos largos). */
@@ -868,7 +869,7 @@ function porMes(serie){
   serie.forEach(function(f){ var k = f.f.slice(0, 7), o = mm[k]; if (!o){ o = mm[k] = { f: k, u: 0, c: 0, por: {} }; out.push(o); } o.u += f.u; o.c += f.c; Object.keys(f.por).forEach(function(n){ o.por[n] = (o.por[n] || 0) + f.por[n]; }); });
   return out;
 }
-return { PREDET: PREDET, porDefecto: porDefecto, primera: primera, nombreValido: nombreValido, copiar: copiar, resolver: resolver, motivo: motivo, catalogo: catalogo, contarProductos: contarProductos, informe: informe, porMes: porMes };
+return { PREDET: PREDET, porDefecto: porDefecto, primera: primera, nombreValido: nombreValido, copiar: copiar, resolver: resolver, motivo: motivo, catalogo: catalogo, contarProductos: contarProductos, informe: informe, porMes: porMes, COMISION_CENT: COMISION_CENT };
 })(TOM);
 
 /* ============================================================
@@ -1279,6 +1280,29 @@ function vistaGestionRr(){
     return '<li><div class="clas-n"><b>' + esc(cat[k] || k) + '</b><small>Apartado del informe</small></div><div class="rr-acc"><button type="button" class="btn claro peq" data-act="rr-devolver" data-v="' + esc(k) + '"' + (R.guardando ? ' disabled' : '') + '>Volver a incluir</button></div></li>'; }).join('') + '</ul>';
   return h + '</section>';
 }
+function financieroRr(inf, p){
+  var C = RRP.COMISION_CENT, t = inf.total, com = t.com, dias = inf.nDias || 0;
+  var neto = t.c - com, pctRr = t.c ? com / t.c * 100 : 0, medio = t.u ? Math.round(t.c / t.u) : 0;
+  var ant = null, cmp = T.periodoComparable(S.m, p);
+  if (cmp && cmp.fechas.length) ant = { inf: RRP.informe(S.m, S.rr.cfg, cmp.fechas), cmp: cmp };
+  function fila(a, b, c){ return '<tr><td>' + a + '</td><td class="n"><b>' + b + '</b></td><td style="white-space:normal;min-width:200px">' + (c || '') + '</td></tr>'; }
+  var h = '<h3 class="rr-h3">Análisis financiero</h3><div class="rr-scroll"><table class="rr-tabla"><thead><tr><th>Concepto</th><th class="n">Importe</th><th>Cómo se calcula</th></tr></thead><tbody>' +
+    fila('Ventas de RR.PP.', T.fmtEur(t.c), 'Lo que han vendido los productos de RR.PP. en el periodo (importes tal como los da Ágora).') +
+    fila('Comisiones a pagar', T.fmtEur(com), T.fmtNum(t.u) + ' unidades × ' + T.fmtEur(C) + ' fijos por unidad vendida.') +
+    fila('Ventas de RR.PP. después de comisiones', T.fmtEur(neto), 'Ventas de RR.PP. menos comisiones.') +
+    fila('Comisión sobre las ventas de RR.PP.', t.c ? T.fmtPct(pctRr) : '–', 'Qué parte de lo que venden se va en comisiones.') +
+    fila('Comisión sobre las ventas totales del local', inf.ventas.c ? T.fmtPct(com / inf.ventas.c * 100, 2) : '–', 'Comisiones entre todas las ventas del periodo (' + T.fmtEur(inf.ventas.c) + ').') +
+    fila('Ventas totales del local después de comisiones', T.fmtEur(inf.ventas.c - com), 'Ventas totales menos comisiones de RR.PP.') +
+    fila('Precio medio por unidad de RR.PP.', t.u ? T.fmtEur(medio) : '–', 'Ventas de RR.PP. entre unidades. De cada unidad, ' + T.fmtEur(C) + ' son comisión.') +
+    fila('Comisión media por día cargado', dias ? T.fmtEur(Math.round(com / dias)) : '–', T.fmtEur(com) + ' entre ' + dias + ' ' + plural(dias, 'día cargado', 'días cargados') + '.') +
+    fila('Ventas de RR.PP. por día cargado', dias ? T.fmtEur(Math.round(t.c / dias)) : '–', T.fmtEur(t.c) + ' entre ' + dias + ' ' + plural(dias, 'día', 'días') + '.');
+  if (ant){
+    var a = ant.inf.total, dv = a.c ? (t.c - a.c) / a.c * 100 : null, dc = a.com ? (com - a.com) / a.com * 100 : null;
+    h += fila('Ventas de RR.PP. en ' + esc(ant.cmp.etiqueta), T.fmtEur(a.c), (dv == null ? 'Sin ventas con las que comparar.' : (dv >= 0 ? 'Ahora: ' + T.fmtPct(dv) + ' más.' : 'Ahora: ' + T.fmtPct(-dv) + ' menos.')) + (ant.cmp.completo ? '' : ' Ojo: ese periodo tiene días sin cargar.')) +
+      fila('Comisiones en ' + esc(ant.cmp.etiqueta), T.fmtEur(a.com), dc == null ? '' : (dc >= 0 ? 'Ahora: ' + T.fmtPct(dc) + ' más.' : 'Ahora: ' + T.fmtPct(-dc) + ' menos.'));
+  }
+  return h + '</tbody></table></div><p class="peq-txt">Las comisiones no incluyen impuestos ni cargas. Los importes de venta son los que da Ágora, sin descontar IVA.</p>';
+}
 function vistaInformes(){
   var R = S.rr, h = '';
   if (R.cargando && !R.cfg) return '<div class="vacio"><b>Cargando…</b>Un momento.</div>';
@@ -1304,12 +1328,13 @@ function vistaInformes(){
   if (!p.fechas.length) return h + '<div class="vacio"><b>No hay ventas cargadas en este periodo</b>Prueba con otro.</div></section>' + vistaGestionRr();
   if (R.msg && !R.guardando && R.msg.t === 'err') h += '<div class="aviso err" role="alert">' + esc(R.msg.x) + '</div>';
   var pct = inf.ventas.c ? inf.total.c / inf.ventas.c * 100 : 0;
-  h += '<div class="rr-kpis"><div class="rr-kpi"><b>' + T.fmtEur(inf.total.c) + '</b><span>ventas de RR.PP.</span></div><div class="rr-kpi"><b>' + T.fmtNum(inf.total.u) + '</b><span>unidades</span></div><div class="rr-kpi"><b>' + T.fmtPct(pct) + '</b><span>de las ventas del periodo</span></div><div class="rr-kpi"><b>' + inf.lista.filter(function(x){ return x.u || x.c; }).length + ' de ' + inf.lista.length + '</b><span>RR.PP. con ventas</span></div></div>';
+  h += '<div class="rr-kpis"><div class="rr-kpi"><b>' + T.fmtEur(inf.total.c) + '</b><span>ventas de RR.PP.</span></div><div class="rr-kpi"><b>' + T.fmtNum(inf.total.u) + '</b><span>unidades</span></div><div class="rr-kpi"><b>' + T.fmtEur(inf.total.com) + '</b><span>comisiones (2 € por unidad)</span></div><div class="rr-kpi"><b>' + T.fmtPct(pct) + '</b><span>de las ventas del periodo</span></div><div class="rr-kpi"><b>' + inf.lista.filter(function(x){ return x.u || x.c; }).length + ' de ' + inf.lista.length + '</b><span>RR.PP. con ventas</span></div></div>';
   if (inf.apartados.u || inf.apartados.c) h += '<p class="peq-txt">Nota: ' + inf.apartados.n + ' ' + plural(inf.apartados.n, 'producto con nombre de RR.PP. está', 'productos con nombre de RR.PP. están') + ' clasificados como cupones o músicos y no se cuentan (' + T.fmtNum(inf.apartados.u) + ' uds.).</p>';
   h += '<div class="rr-botones"><button type="button" class="btn" data-act="rr-xlsx">Descargar Excel</button></div>';
-  h += '<h3 class="rr-h3">Por relaciones públicas</h3><div class="rr-scroll"><table class="rr-tabla"><thead><tr><th>RR.PP.</th><th class="n">Uds.</th><th class="n">Ventas</th><th class="n">% RR.PP.</th><th class="n">Días</th></tr></thead><tbody>' +
-    inf.lista.map(function(x){ return '<tr' + (x.u || x.c ? '' : ' class="cero"') + '><td><b>' + esc(nomRr(x.n)) + '</b></td><td class="n">' + T.fmtNum(x.u) + '</td><td class="n">' + T.fmtEur(x.c) + '</td><td class="n">' + (inf.total.c ? T.fmtPct(x.c / inf.total.c * 100, 0) : '–') + '</td><td class="n">' + x.dias + '</td></tr>'; }).join('') +
-    '<tr class="tot"><td>Total</td><td class="n">' + T.fmtNum(inf.total.u) + '</td><td class="n">' + T.fmtEur(inf.total.c) + '</td><td class="n">100 %</td><td class="n">' + inf.nDias + ' ' + plural(inf.nDias, 'día', 'días') + '</td></tr></tbody></table></div>';
+  h += '<h3 class="rr-h3">Por relaciones públicas</h3><div class="rr-scroll"><table class="rr-tabla"><thead><tr><th>RR.PP.</th><th class="n">Uds.</th><th class="n">Ventas</th><th class="n">Comisión</th><th class="n">% RR.PP.</th><th class="n">Días</th></tr></thead><tbody>' +
+    inf.lista.map(function(x){ return '<tr' + (x.u || x.c ? '' : ' class="cero"') + '><td><b>' + esc(nomRr(x.n)) + '</b></td><td class="n">' + T.fmtNum(x.u) + '</td><td class="n">' + T.fmtEur(x.c) + '</td><td class="n">' + T.fmtEur(x.com) + '</td><td class="n">' + (inf.total.c ? T.fmtPct(x.c / inf.total.c * 100, 0) : '–') + '</td><td class="n">' + x.dias + '</td></tr>'; }).join('') +
+    '<tr class="tot"><td>Total</td><td class="n">' + T.fmtNum(inf.total.u) + '</td><td class="n">' + T.fmtEur(inf.total.c) + '</td><td class="n">' + T.fmtEur(inf.total.com) + '</td><td class="n">100 %</td><td class="n">' + inf.nDias + ' ' + plural(inf.nDias, 'día', 'días') + '</td></tr></tbody></table></div>';
+  h += financieroRr(inf, p);
   h += '<h3 class="rr-h3">Productos de cada uno</h3><p class="sub-txt" style="margin-top:0">Toca un nombre para ver qué ha vendido. Si algún producto no debería estar, pulsa «No es RR.PP.».</p>' +
     inf.lista.filter(function(x){ return x.prods.length; }).map(function(x){
       return '<details class="rr-prods" data-rr="' + esc(x.n) + '"' + (R.abiertos[x.n] ? ' open' : '') + '><summary><b>' + esc(nomRr(x.n)) + '</b><span>' + T.fmtNum(x.u) + ' uds. · ' + T.fmtEur(x.c) + '</span></summary><ul class="rr-lp">' +
@@ -1359,12 +1384,25 @@ async function descargarRr(){
   try {
     var inf = RRP.informe(S.m, R.cfg, p.fechas), largo = T.isoNum(p.hastaEf) - T.isoNum(p.desde) + 1 > 62, serie = largo ? RRP.porMes(inf.serie) : inf.serie;
     var cols = inf.lista.map(function(x){ return x.n; }).filter(function(n){ return serie.some(function(f){ return f.por[n]; }); });
-    var resumen = [['Relaciones públicas', 'Unidades', 'Ventas (€)', '% sobre RR.PP.', 'Días con ventas']].concat(inf.lista.map(function(x){ return [nomRr(x.n), x.u, { e: x.c }, inf.total.c ? Math.round(x.c / inf.total.c * 1000) / 10 : 0, x.dias]; }));
-    resumen.push(['Total', inf.total.u, { e: inf.total.c }, 100, inf.nDias]); resumen.push([]); resumen.push(['Periodo', p.etiqueta]); resumen.push(['Días cargados', inf.nDias]); resumen.push(['Ventas totales del periodo (€)', { e: inf.ventas.c }]);
+    var resumen = [['Relaciones públicas', 'Unidades', 'Ventas (€)', 'Comisión (€)', '% sobre RR.PP.', 'Días con ventas']].concat(inf.lista.map(function(x){ return [nomRr(x.n), x.u, { e: x.c }, { e: x.com }, inf.total.c ? Math.round(x.c / inf.total.c * 1000) / 10 : 0, x.dias]; }));
+    resumen.push(['Total', inf.total.u, { e: inf.total.c }, { e: inf.total.com }, 100, inf.nDias]); resumen.push([]); resumen.push(['Periodo', p.etiqueta]); resumen.push(['Días cargados', inf.nDias]); resumen.push(['Ventas totales del periodo (€)', { e: inf.ventas.c }]);
+    var tt = inf.total, dn = inf.nDias || 0, finan = [['Concepto', 'Importe', 'Cómo se calcula'],
+      ['Ventas de RR.PP.', { e: tt.c }, 'Productos de RR.PP. en el periodo (importes de Ágora)'],
+      ['Comisiones a pagar', { e: tt.com }, tt.u + ' unidades × 2 € fijos por unidad vendida'],
+      ['Ventas de RR.PP. después de comisiones', { e: tt.c - tt.com }, 'Ventas de RR.PP. menos comisiones'],
+      ['Comisión sobre las ventas de RR.PP. (%)', tt.c ? Math.round(tt.com / tt.c * 1000) / 10 : 0, 'Comisiones entre ventas de RR.PP.'],
+      ['Comisión sobre las ventas totales del local (%)', inf.ventas.c ? Math.round(tt.com / inf.ventas.c * 10000) / 100 : 0, 'Comisiones entre ventas totales del periodo'],
+      ['Ventas totales del local (€)', { e: inf.ventas.c }, 'Todas las ventas del periodo'],
+      ['Ventas totales después de comisiones', { e: inf.ventas.c - tt.com }, 'Ventas totales menos comisiones'],
+      ['Precio medio por unidad de RR.PP.', { e: tt.u ? Math.round(tt.c / tt.u) : 0 }, 'Ventas de RR.PP. entre unidades'],
+      ['Comisión media por día cargado', { e: dn ? Math.round(tt.com / dn) : 0 }, 'Comisiones entre días cargados'],
+      ['Ventas de RR.PP. por día cargado', { e: dn ? Math.round(tt.c / dn) : 0 }, 'Ventas de RR.PP. entre días cargados'],
+      ['Periodo', p.etiqueta, ''], ['Días cargados', dn, '']];
     var prods = [['Relaciones públicas', 'Producto', 'Unidades', 'Ventas (€)']]; inf.lista.forEach(function(x){ x.prods.forEach(function(pr){ prods.push([nomRr(x.n), pr.n, pr.u, { e: pr.c }]); }); });
     var dias = [[largo ? 'Mes' : 'Día'].concat(cols.map(nomRr), ['Unidades', 'Ventas (€)'])].concat(serie.map(function(f){ return [largo ? T.nombreMes(f.f + '-01') : T.fmtFecha(f.f)].concat(cols.map(function(n){ return f.por[n] || 0; }), [f.u, { e: f.c }]); }));
     var blob = await construirXlsx([
-      { nombre: 'Por RR.PP.', filas: resumen, anchos: [30, 12, 14, 16, 16] },
+      { nombre: 'Por RR.PP.', filas: resumen, anchos: [30, 12, 14, 14, 16, 16] },
+      { nombre: 'Análisis financiero', filas: finan, anchos: [46, 16, 60] },
       { nombre: 'Productos', filas: prods, anchos: [22, 44, 12, 14] },
       { nombre: largo ? 'Por mes' : 'Por día', filas: dias, anchos: [22].concat(cols.map(function(){ return 12; }), [12, 14]) }]);
     var a = document.createElement('a'), d1 = p.desde, d2 = p.hastaEf || p.hasta;
