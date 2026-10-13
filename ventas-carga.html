@@ -1480,7 +1480,12 @@ document.addEventListener('change', function(ev){
   if (f === 'rrdesde' || f === 'rrhasta'){
     /* Al teclear una fecha, el navegador da por buenas fechas intermedias (p. ej. el año 0002). Solo se aceptan años razonables y se espera un momento antes de redibujar, para no perder el cursor. */
     var okF = T.esIso(t.value) && +t.value.slice(0, 4) >= 2020 && +t.value.slice(0, 4) <= 2100;
-    if (okF){ if (f === 'rrdesde') S.rr.desde = t.value; else S.rr.hasta = t.value; }
+    if (okF){
+      var Rr = S.rr, pa = periodoRr();
+      if (!Rr.desde && pa) Rr.desde = pa.desde; if (!Rr.hasta && pa) Rr.hasta = pa.hasta;
+      if (f === 'rrdesde'){ Rr.desde = t.value; if (Rr.hasta && Rr.hasta < Rr.desde) Rr.hasta = Rr.desde; }   /* la fecha que eliges se respeta; la otra se mueve con ella */
+      else { Rr.hasta = t.value; if (Rr.desde && Rr.desde > Rr.hasta) Rr.desde = Rr.hasta; }
+    }
     clearTimeout(window.__rrT); var idF = t.id;
     window.__rrT = setTimeout(function(){ pintar(); var e2 = document.getElementById(idF); if (e2 && document.activeElement !== e2){ try { e2.focus(); } catch (x){} } }, okF ? 350 : 900);
     return;
