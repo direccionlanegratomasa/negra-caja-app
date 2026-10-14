@@ -95,6 +95,8 @@ label{ display:block; font-weight:700; font-size:16px; margin:0 0 6px; }
 .vacio{ color:var(--suave); padding:18px 4px; text-align:center; }
 .pie{ display:flex; gap:10px; flex-wrap:wrap; margin-top:20px; }
 .pie .btn{ flex:1 1 220px; }
+.grupo{ width:auto; min-width:210px; max-width:300px; min-height:64px; font-size:18px; font-weight:700; padding:8px 10px; }
+@media (max-width:600px){ .grupo{ min-width:0; width:100%; max-width:none; } }
 </style>
 </head>
 <body>
@@ -150,6 +152,10 @@ function vistaAcceso(){
     '<input class="campo" id="codigo" name="codigo" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="12" required></div>' +
     '<button class="btn" type="submit"' + (S.cargando ? ' disabled' : '') + '>' + (S.cargando ? 'Comprobando…' : 'Entrar') + '</button></form></section>';
 }
+function opcionesGrupo(sel){
+  return '<option value="">¿Con qué grupo?</option>' + (S.grupos || []).map(function(g){ return '<option value="' + esc(g) + '"' + (g === sel ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('');
+}
+function grupoPrevio(id){ var g = ''; S.turnos.forEach(function(t){ if (!g && marcasDe(t)[id] && marcasDe(t)[id].g) g = marcasDe(t)[id].g; }); return g; }
 function filaPersona(p){
   var m = marcasDe(S.turno)[p.id], otros = [];
   S.turnos.forEach(function(t){ if (t !== S.turno && marcasDe(t)[p.id]) otros.push(t + ' (' + marcasDe(t)[p.id].h + ')'); });
@@ -159,11 +165,14 @@ function filaPersona(p){
       '<button class="btn chico" type="submit">Guardar</button><button type="button" class="btn chico" data-act="cancelar">Cancelar</button></form>';
   } else if (m){
     acc = '<div class="hecho"><span class="hora" aria-label="Llegó a las ' + esc(m.h) + '">✓ ' + esc(m.h) + '</span>' +
+      '<select class="campo grupo" data-grupo="cambiar" data-id="' + esc(p.id) + '" aria-label="Grupo de ' + esc(p.nombre) + '">' + opcionesGrupo(m.g || '') + '</select>' +
       '<button type="button" class="btn chico" data-act="hora" data-id="' + esc(p.id) + '">Hora</button>' +
       '<button type="button" class="btn chico" data-act="quitar" data-id="' + esc(p.id) + '" data-n="' + esc(p.nombre) + '">Quitar</button></div>';
   } else {
     var ocupado = !!S.enCurso[p.id + '|' + S.turno];
-    acc = '<button type="button" class="llego" data-act="llego" data-id="' + esc(p.id) + '"' + (ocupado ? ' disabled' : '') + '>' + (ocupado ? '…' : 'Llegó') + '</button>';
+    var gs = (S.gSel && S.gSel[p.id]) || grupoPrevio(p.id);
+    acc = '<div class="hecho"><select class="campo grupo" data-grupo="elegir" data-id="' + esc(p.id) + '" aria-label="Grupo de ' + esc(p.nombre) + '">' + opcionesGrupo(gs) + '</select>' +
+      '<button type="button" class="llego" data-act="llego" data-id="' + esc(p.id) + '"' + (ocupado ? ' disabled' : '') + '>' + (ocupado ? '…' : 'Llegó') + '</button></div>';
   }
   return '<li' + (m ? ' class="ya"' : '') + '>' + nom + acc + '</li>';
 }
@@ -195,19 +204,19 @@ function pintar(){
   else if (S.editando){ var he = document.getElementById('hora-edit'); if (he) he.focus(); }
 }
 function aplicar(j){
-  S.dia = j.dia; S.fecha = j.fecha; S.hora = j.hora; S.turnos = j.turnos || S.turnos; S.personas = j.personas || []; S.marcas = j.marcas || {};
+  S.dia = j.dia; S.fecha = j.fecha; S.hora = j.hora; S.turnos = j.turnos || S.turnos; S.personas = j.personas || []; S.marcas = j.marcas || {}; S.grupos = j.grupos || S.grupos || [];
   if (!S.turno || S.turnos.indexOf(S.turno) < 0) S.turno = turnoPorHora(j.hora);
 }
 async function cargar(fecha, silencioso){
   var j = await pedir('asistenciaLeer', fecha ? { fecha: fecha } : {});
-  if (silencioso && (S.editando || Object.keys(S.enCurso).length || fecha !== undefined && fecha !== S.fecha)) return;
+  if (silencioso && (S.editando || (document.activeElement && document.activeElement.tagName === 'SELECT') || Object.keys(S.enCurso).length || fecha !== undefined && fecha !== S.fecha)) return;
   var primera = !S.fecha; aplicar(j); S.paso = 'tablet'; if (primera || !silencioso) pintar(); else pintar();
 }
 function arrancarRefresco(){
   parar();
   TICK = setInterval(async function(){
     if (S.paso !== 'tablet' || document.hidden || S.editando || Object.keys(S.enCurso).length || S.enviando) return;
-    var antes = S.fecha; try { var j = await pedir('asistenciaLeer', { fecha: antes }); if (S.editando || antes !== S.fecha) return; aplicar(j); pintar(); } catch (e){ if (e.codigo === 'SESION'){ sesionCaducada(); pintar(); } }
+    var antes = S.fecha; try { var j = await pedir('asistenciaLeer', { fecha: antes }); if (S.editando || antes !== S.fecha || (document.activeElement && document.activeElement.tagName === 'SELECT')) return; aplicar(j); pintar(); } catch (e){ if (e.codigo === 'SESION'){ sesionCaducada(); pintar(); } }
   }, 60000);
 }
 async function entrar(codigo){
@@ -224,11 +233,21 @@ function fallo(e){
   else S.msg = { texto: e.message };
 }
 async function llego(id){
-  var k = id + '|' + S.turno; if (S.enCurso[k]) return; S.enCurso[k] = 1; S.msg = null; pintar();
+  var k = id + '|' + S.turno; if (S.enCurso[k]) return;
+  var g = (S.gSel && S.gSel[id]) || grupoPrevio(id);
+  if (!g){ S.msg = { texto: 'Elige primero con qué grupo trabaja hoy.' }; pintar(); return; }
+  S.enCurso[k] = 1; S.msg = null; pintar();
   try {
-    var j = await pedir('asistenciaMarcar', { fecha: S.fecha, turno: S.turno, personaId: id });
+    var j = await pedir('asistenciaMarcar', { fecha: S.fecha, turno: S.turno, personaId: id, grupo: g });
     if (!S.marcas[j.turno]) S.marcas[j.turno] = {}; S.marcas[j.turno][id] = j.marca;
   } catch (e){ fallo(e); if (e.codigo === 'NOAUTORIZADO'){ try { await cargar(S.fecha); } catch (x){} } }
+  delete S.enCurso[k]; pintar();
+}
+async function cambiarGrupo(id, g){
+  if (!g) return;
+  var k = id + '|' + S.turno; if (S.enCurso[k]) return; S.enCurso[k] = 1;
+  try { var j = await pedir('asistenciaMarcar', { fecha: S.fecha, turno: S.turno, personaId: id, grupo: g }); S.marcas[j.turno][id] = j.marca; S.msg = null; }
+  catch (e){ fallo(e); }
   delete S.enCurso[k]; pintar();
 }
 async function cambiarHora(id, hora){
@@ -258,6 +277,11 @@ document.addEventListener('submit', function(ev){
   ev.preventDefault();
   if (ev.target.id === 'f-acceso'){ var c = document.getElementById('codigo').value.trim(); if (!c){ S.msg = 'Escribe tu código.'; pintar(); return; } entrar(c); }
   else if (ev.target.dataset && ev.target.dataset.form === 'hora') cambiarHora(ev.target.dataset.id, document.getElementById('hora-edit').value.trim());
+});
+document.addEventListener('change', function(ev){
+  var d = ev.target.dataset; if (!d || !d.grupo) return;
+  if (d.grupo === 'elegir'){ S.gSel = S.gSel || {}; S.gSel[d.id] = ev.target.value; }
+  else if (d.grupo === 'cambiar') cambiarGrupo(d.id, ev.target.value);
 });
 document.addEventListener('input', function(ev){ if (ev.target.id === 'buscar'){ S.q = ev.target.value; pintar(); } });
 document.addEventListener('click', function(ev){
