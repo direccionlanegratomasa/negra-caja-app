@@ -139,15 +139,30 @@ var VISOR = (function(){
   var el = null, url = null;
   function aBlob(b64, tipo){ var bin = atob(b64), n = bin.length, u = new Uint8Array(n); for (var i = 0; i < n; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: tipo }); }
   function cerrar(){ if (el){ el.remove(); el = null; } if (url){ URL.revokeObjectURL(url); url = null; } document.body.style.overflow = ''; }
-  function abrir(titulo, cargar){
+  function abrir(titulo, cargar, clave){
     cerrar();
     el = document.createElement('div'); el.className = 'visor'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', titulo);
     el.innerHTML = '<div class="visor-cab"><b>' + esc(titulo) + '</b><button type="button" class="btn chico" data-visor="cerrar">Cerrar</button></div><div class="visor-cuerpo"><p class="visor-msg">Abriendo el documento…</p></div>';
     document.body.appendChild(el); document.body.style.overflow = 'hidden';
-    var mia = el;
-    cargar().then(function(a){
-      if (el !== mia) return;
-      url = URL.createObjectURL(aBlob(a.b64, a.tipo));
+    var mia = el, clavC = clave ? '/doc-cache/' + encodeURIComponent(clave) : '';
+    function leerCache(){
+      if (!clavC || typeof caches === 'undefined') return Promise.resolve(null);
+      return caches.open('docs-v1').then(function(c){ return c.match(clavC); }).then(function(r){
+        if (!r) return null;
+        return r.blob().then(function(b){ return { blob: b, tipo: r.headers.get('X-Tipo') || b.type, nombre: decodeURIComponent(r.headers.get('X-Nombre') || 'documento') }; });
+      }).catch(function(){ return null; });
+    }
+    function guardarCache(a, blob){
+      if (!clavC || typeof caches === 'undefined') return;
+      try { caches.open('docs-v1').then(function(c){ return c.put(clavC, new Response(blob, { headers: { 'X-Tipo': a.tipo, 'X-Nombre': encodeURIComponent(a.nombre || 'documento') } })); }).catch(function(){}); } catch (e){}
+    }
+    leerCache().then(function(hit){
+      if (hit || !el || el !== mia) return hit;
+      var cuerpo0 = mia.querySelector('.visor-msg'); if (cuerpo0) cuerpo0.textContent = 'Abriendo el documento… la primera vez los archivos grandes tardan unos segundos; después se abren al instante.';
+      return cargar().then(function(a){ var blob = aBlob(a.b64, a.tipo); guardarCache(a, blob); return { blob: blob, tipo: a.tipo, nombre: a.nombre }; });
+    }).then(function(a){
+      if (!a || el !== mia) return;
+      url = URL.createObjectURL(a.blob);
       var imagen = /^image\//.test(a.tipo), pdf = a.tipo === 'application/pdf', cuerpo = mia.querySelector('.visor-cuerpo');
       cuerpo.innerHTML = imagen ? '<img alt="' + esc(titulo) + '" src="' + url + '">' : (pdf ? '<iframe title="' + esc(titulo) + '" src="' + url + '"></iframe>' : '<p class="visor-msg">Este tipo de archivo no se puede ver aquí. Descárgalo para abrirlo.</p>');
       var pie = document.createElement('div'); pie.className = 'visor-pie';
@@ -214,7 +229,7 @@ document.addEventListener('click', function(ev){
   else if (a === 'reintentar') cargar();
   else if (a === 'ver'){
     var d = S.ind.docs.filter(function(x){ return x.id === b.dataset.v; })[0]; if (!d) return;
-    VISOR.abrir(d.t, function(){ return pedir('inspArchivo', { k: S.k, id: d.id }); });
+    VISOR.abrir(d.t, function(){ return pedir('inspArchivo', { k: S.k, id: d.id }); });  /* sin caché: cada apertura se anota en el registro de accesos */
   }
 });
 document.addEventListener('input', function(ev){ if (ev.target.id === 'q'){ S.q = ev.target.value; pintar(); } });

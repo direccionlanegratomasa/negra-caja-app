@@ -108,6 +108,9 @@ details.ayuda summary{ cursor:pointer; font-weight:700; min-height:42px; display
   #cartel svg{ width:420px; height:420px; margin:26px auto 10px; display:block; }
   #cartel .pie{ font-size:15px; color:#444; }
 }
+.catfila .vis{ display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; white-space:nowrap; flex-wrap:nowrap; }
+.catfila .vis input{ flex:none; width:22px; height:22px; min-height:0; }
+@media (max-width:560px){ .catfila{ flex-wrap:wrap; } .catfila .vis{ order:5; flex-basis:100%; } }
 </style>
 </head>
 <body>
@@ -2462,15 +2465,30 @@ var VISOR = (function(){
   var el = null, url = null;
   function aBlob(b64, tipo){ var bin = atob(b64), n = bin.length, u = new Uint8Array(n); for (var i = 0; i < n; i++) u[i] = bin.charCodeAt(i); return new Blob([u], { type: tipo }); }
   function cerrar(){ if (el){ el.remove(); el = null; } if (url){ URL.revokeObjectURL(url); url = null; } document.body.style.overflow = ''; }
-  function abrir(titulo, cargar){
+  function abrir(titulo, cargar, clave){
     cerrar();
     el = document.createElement('div'); el.className = 'visor'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', titulo);
     el.innerHTML = '<div class="visor-cab"><b>' + esc(titulo) + '</b><button type="button" class="btn chico" data-visor="cerrar">Cerrar</button></div><div class="visor-cuerpo"><p class="visor-msg">Abriendo el documento…</p></div>';
     document.body.appendChild(el); document.body.style.overflow = 'hidden';
-    var mia = el;
-    cargar().then(function(a){
-      if (el !== mia) return;
-      url = URL.createObjectURL(aBlob(a.b64, a.tipo));
+    var mia = el, clavC = clave ? '/doc-cache/' + encodeURIComponent(clave) : '';
+    function leerCache(){
+      if (!clavC || typeof caches === 'undefined') return Promise.resolve(null);
+      return caches.open('docs-v1').then(function(c){ return c.match(clavC); }).then(function(r){
+        if (!r) return null;
+        return r.blob().then(function(b){ return { blob: b, tipo: r.headers.get('X-Tipo') || b.type, nombre: decodeURIComponent(r.headers.get('X-Nombre') || 'documento') }; });
+      }).catch(function(){ return null; });
+    }
+    function guardarCache(a, blob){
+      if (!clavC || typeof caches === 'undefined') return;
+      try { caches.open('docs-v1').then(function(c){ return c.put(clavC, new Response(blob, { headers: { 'X-Tipo': a.tipo, 'X-Nombre': encodeURIComponent(a.nombre || 'documento') } })); }).catch(function(){}); } catch (e){}
+    }
+    leerCache().then(function(hit){
+      if (hit || !el || el !== mia) return hit;
+      var cuerpo0 = mia.querySelector('.visor-msg'); if (cuerpo0) cuerpo0.textContent = 'Abriendo el documento… la primera vez los archivos grandes tardan unos segundos; después se abren al instante.';
+      return cargar().then(function(a){ var blob = aBlob(a.b64, a.tipo); guardarCache(a, blob); return { blob: blob, tipo: a.tipo, nombre: a.nombre }; });
+    }).then(function(a){
+      if (!a || el !== mia) return;
+      url = URL.createObjectURL(a.blob);
       var imagen = /^image\//.test(a.tipo), pdf = a.tipo === 'application/pdf', cuerpo = mia.querySelector('.visor-cuerpo');
       cuerpo.innerHTML = imagen ? '<img alt="' + esc(titulo) + '" src="' + url + '">' : (pdf ? '<iframe title="' + esc(titulo) + '" src="' + url + '"></iframe>' : '<p class="visor-msg">Este tipo de archivo no se puede ver aquí. Descárgalo para abrirlo.</p>');
       var pie = document.createElement('div'); pie.className = 'visor-pie';
@@ -2559,7 +2577,7 @@ function vistaQr(){
   return h;
 }
 function vistaAjustes(){
-  if (!S.cats) S.cats = S.ind.categorias.map(function(c){ return { id: c.id, n: c.n }; });
+  if (!S.cats) S.cats = S.ind.categorias.map(function(c){ return { id: c.id, n: c.n, v: c.v === 0 ? 0 : 1 }; });
   if (!S.local) S.local = Object.assign({}, S.ind.local);
   var usados = {}; S.ind.docs.forEach(function(d){ usados[d.c] = (usados[d.c] || 0) + 1; });
   var l = S.local, campo = function(k, et, ph){ return '<div class="fila"><label for="l-' + k + '">' + et + '</label><input type="text" id="l-' + k + '" maxlength="200" value="' + esc(l[k] || '') + '" placeholder="' + esc(ph || '') + '"></div>'; };
@@ -2568,8 +2586,9 @@ function vistaAjustes(){
     campo('nombre', 'Nombre del local', 'La Negra Tomasa de Sol') + campo('razon', 'Titular / razón social') + campo('cif', 'CIF') + campo('direccion', 'Dirección') +
     '<div class="dosc">' + campo('aforo', 'Aforo máximo', 'Por ejemplo: 120 personas') + campo('licencia', 'Licencia nº') + '</div>' + campo('horario', 'Horario autorizado') + campo('telefono', 'Teléfono del responsable') +
     '<button type="button" class="btn" data-act="local-guardar"' + (S.ocupado ? ' disabled' : '') + '>Guardar los datos del local</button></section><div class="espacio"></div>';
-  h += '<section class="caja form"><h2>Pestañas</h2><p class="sub">Puedes cambiar el nombre, ordenarlas y añadir las que necesites. Una pestaña solo se puede quitar si no tiene documentos.</p>' +
+  h += '<section class="caja form"><h2>Pestañas</h2><p class="sub">Puedes cambiar el nombre, ordenarlas y añadir las que necesites. Marca «La ve la inspección» en las pestañas que quieres que enseñe el QR; las demás solo las ves tú. Una pestaña solo se puede quitar si no tiene documentos.</p>' +
     S.cats.map(function(c, i){ return '<div class="catfila"><input type="text" data-i="' + i + '" data-f="catn" maxlength="40" value="' + esc(c.n) + '" aria-label="Nombre de la pestaña">' +
+      '<label class="vis"><input type="checkbox" data-i="' + i + '" data-f="catv"' + (c.v === 0 ? '' : ' checked') + '> La ve la inspección</label>' +
       '<button type="button" class="btn chico" data-act="cat-sube" data-v="' + i + '" aria-label="Subir"' + (i === 0 ? ' disabled' : '') + '>↑</button><button type="button" class="btn chico" data-act="cat-baja" data-v="' + i + '" aria-label="Bajar"' + (i === S.cats.length - 1 ? ' disabled' : '') + '>↓</button>' +
       '<button type="button" class="btn chico" data-act="cat-quita" data-v="' + i + '" aria-label="Quitar"' + (usados[c.id] ? ' disabled title="Tiene documentos"' : '') + '>✕</button></div>'; }).join('') +
     '<div class="botones"><button type="button" class="btn claro" data-act="cat-add">Añadir una pestaña</button><button type="button" class="btn" data-act="cats-guardar"' + (S.ocupado ? ' disabled' : '') + '>Guardar las pestañas</button></div></section>';
@@ -2649,7 +2668,7 @@ async function operar(fn, ok){
   catch (e){ if (e.codigo === 'SESION') caducada(); else S.msg = { texto: e.message }; }
   S.ocupado = ''; pintar(); window.scrollTo(0, 0);
 }
-function leerCatsDom(){ Array.prototype.forEach.call(document.querySelectorAll('[data-f=catn]'), function(i){ if (S.cats[+i.dataset.i]) S.cats[+i.dataset.i].n = i.value; }); }
+function leerCatsDom(){ Array.prototype.forEach.call(document.querySelectorAll('[data-f=catn]'), function(i){ if (S.cats[+i.dataset.i]) S.cats[+i.dataset.i].n = i.value; }); Array.prototype.forEach.call(document.querySelectorAll('[data-f=catv]'), function(i){ if (S.cats[+i.dataset.i]) S.cats[+i.dataset.i].v = i.checked ? 1 : 0; }); }
 function leerLocalDom(){ ['nombre','razon','cif','direccion','aforo','licencia','horario','telefono'].forEach(function(k){ var e = document.getElementById('l-' + k); if (e) S.local[k] = e.value; }); }
 document.addEventListener('submit', function(ev){ ev.preventDefault(); if (ev.target.id === 'f-acceso'){ var c = document.getElementById('codigo').value.trim(); if (!c){ S.msg = { texto: 'Escribe tu código.' }; pintar(); return; } entrar(c); } });
 document.addEventListener('toggle', function(ev){ if (ev.target && ev.target.id === 'ayuda') S.ayuda = ev.target.open; }, true);
@@ -2664,7 +2683,7 @@ document.addEventListener('click', function(ev){
   else if (a === 'subir'){ S.subir = true; S.msg = null; pintar(); }
   else if (a === 'subir-no'){ S.subir = false; pintar(); }
   else if (a === 'subir-ok') subirArchivos();
-  else if (a === 'ver'){ var d = S.ind.docs.filter(function(x){ return x.id === v; })[0]; if (d) VISOR.abrir(d.t, function(){ return pedir('inspArchivo', { id: d.id }); }); }
+  else if (a === 'ver'){ var d = S.ind.docs.filter(function(x){ return x.id === v; })[0]; if (d) VISOR.abrir(d.t, function(){ return pedir('inspArchivo', { id: d.id }); }, d.id + '-' + (d.tam || 0)); }
   else if (a === 'editar'){ S.edit = v; S.msg = null; pintar(); }
   else if (a === 'editar-no'){ S.edit = ''; pintar(); }
   else if (a === 'editar-ok'){ var t = document.getElementById('e-titulo').value, c = document.getElementById('e-cat').value, ve = document.getElementById('e-vence').value, n = document.getElementById('e-nota').value; operar(function(){ return pedir('inspEditar', { id: v, titulo: t, cat: c, vence: ve, nota: n }); }, 'Cambios guardados.').then(function(){ if (!S.msg || S.msg.ok) S.edit = ''; pintar(); }); }
@@ -2679,7 +2698,7 @@ document.addEventListener('click', function(ev){
   else if (a === 'cat-add'){ leerCatsDom(); S.cats.push({ n: '' }); pintar(); var ins = document.querySelectorAll('[data-f=catn]'); if (ins.length) ins[ins.length - 1].focus(); }
   else if (a === 'cat-sube' || a === 'cat-baja'){ leerCatsDom(); var i = +v, j = a === 'cat-sube' ? i - 1 : i + 1, x = S.cats[i]; S.cats[i] = S.cats[j]; S.cats[j] = x; pintar(); }
   else if (a === 'cat-quita'){ leerCatsDom(); S.cats.splice(+v, 1); pintar(); }
-  else if (a === 'cats-guardar'){ leerCatsDom(); var cs = S.cats.map(function(c){ return c.id ? { id: c.id, n: c.n } : { n: c.n }; }); operar(function(){ return pedir('inspCategorias', { cats: cs }); }, 'Pestañas guardadas.'); }
+  else if (a === 'cats-guardar'){ leerCatsDom(); var cs = S.cats.map(function(c){ return c.id ? { id: c.id, n: c.n, v: c.v === 0 ? 0 : 1 } : { n: c.n, v: c.v === 0 ? 0 : 1 }; }); operar(function(){ return pedir('inspCategorias', { cats: cs }); }, 'Pestañas guardadas.'); }
   else if (a === 'local-guardar'){ leerLocalDom(); var lc = Object.assign({}, S.local); operar(function(){ return pedir('inspLocal', { local: lc }); }, 'Datos del local guardados.'); }
 });
 (async function(){
