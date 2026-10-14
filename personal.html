@@ -95,6 +95,7 @@ tr.fuerte td{ font-weight:700; background:var(--amarillo-claro, #FFF6BF); border
 .tur{ margin:6px 0 0; font-size:15px; }
 .tur b{ display:inline-block; min-width:52px; }
 .tur span{ color:var(--suave); }
+.tur .etq{ color:#1C1A12; }
 table{ border-collapse:collapse; width:100%; font-size:16px; }
 th,td{ text-align:left; padding:7px 8px; border-bottom:1px solid var(--linea); }
 th{ font-size:14px; color:var(--suave); }
@@ -117,6 +118,17 @@ details{ margin-top:12px; } summary{ cursor:pointer; font-weight:700; min-height
 .rango input{ font-size:17px; min-height:46px; border:2px solid var(--tinta); border-radius:8px; padding:4px 8px; }
 .tardio{ color:var(--baja); font-weight:700; }
 .scroll{ overflow-x:auto; }
+.etq{display:inline-block;margin-left:6px;padding:1px 7px;border:2px solid #1C1A12;border-radius:999px;background:#FFD400;font-size:12px;font-weight:700}.etq.tec{background:#1C1A12;color:#FFD400}
+.fil{ list-style:none; margin:4px 0 8px; padding:0; }
+.fil li{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:6px 0; border-bottom:1px solid #E6E0CC; }
+.fil .fn{ flex:1 1 180px; font-weight:600; }
+.fil .fn span{ font-weight:400; color:#6B6558; }
+.fil .fa input{ width:150px; min-height:40px; border:2px solid #1C1A12; border-radius:8px; padding:4px 8px; font-size:15px; background:#fff; }
+.fil .fa input.ok{ border-color:#2E7D32; background:#EAF6EA; }
+.fil .fa input.mal{ border-color:#B3261E; }
+.fil .fa input.guardando{ opacity:.6; }
+.etq.sin{ background:#fff; color:#6B6558; border-style:dashed; }
+.solo-lector{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -282,7 +294,7 @@ function vistaLista(){
   }
   h += '</section><div class="espacio"></div><section class="caja"><h2>Lista actual · ' + act.length + ' personas autorizadas</h2>';
   h += f ? '<p class="suave">Última actualización: ' + esc(new Date(f.act).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Europe/Madrid' })) + (f.archivo ? ' · ' + esc(f.archivo) : '') + '</p>' : '<p class="suave">Todavía no hay ninguna lista. Sube el Excel para empezar.</p>';
-  if (act.length) h += chips(act.map(function(p){ return p.nombre; }).sort(function(a, b){ return quitarTildes(a) < quitarTildes(b) ? -1 : 1; }));
+  if (act.length) h += '<ul class="chips">' + act.slice().sort(function(a, b){ return quitarTildes(a.nombre) < quitarTildes(b.nombre) ? -1 : 1; }).map(function(p){ return '<li>' + esc(p.nombre) + (p.cat ? ' <span class="etq' + (p.cat === 'Técnico' ? ' tec' : '') + '">' + esc(p.cat) + '</span>' : '') + '</li>'; }).join('') + '</ul>';
   if (baja.length) h += '<details><summary>' + baja.length + ' dadas de baja (su historial se conserva)</summary>' + chips(baja.map(function(p){ return p.nombre; })) + '</details>';
   return h + '</section>';
 }
@@ -295,7 +307,9 @@ function vistaRegistro(){
     var d = S.dias[f], n = 0, tt = S.turnos.map(function(t){
       var o = d[t] || {}, ids = Object.keys(o).sort(function(a, b){ return minutos(o[a].h) - minutos(o[b].h); });
       ids.forEach(function(id){ n++; var k = id; tot[k] = tot[k] || { n: o[id].n || id, dias: {}, turnos: 0 }; tot[k].turnos++; tot[k].dias[f] = 1; });
-      return '<p class="tur"><b>' + esc(t) + '</b> ' + (ids.length ? ids.map(function(id){ return esc(o[id].n || id) + ' <span>' + esc(o[id].h) + '</span>'; }).join(' · ') : '<span>nadie</span>') + '</p>';
+      return '<div class="tur"><b>' + esc(t) + '</b>' + (ids.length ? '<ul class="fil">' + ids.map(function(id){ var mk = o[id];
+        return '<li><span class="fn">' + esc(mk.n || id) + ' <span>' + esc(mk.h) + '</span></span>' + (mk.g ? '<span class="etq">' + esc(mk.g) + '</span>' : '<span class="etq sin">sin grupo</span>') +
+          '<label class="fa"><span class="solo-lector">Nº de factura de ' + esc(mk.n || id) + '</span><input type="text" maxlength="40" placeholder="Nº factura" value="' + esc(mk.f || '') + '" data-fa="1" data-f="' + esc(f) + '" data-t="' + esc(t) + '" data-id="' + esc(id) + '" autocomplete="off"></label></li>'; }).join('') + '</ul>' : ' <span>nadie</span>') + '</div>';
     }).join('');
     return '<div class="dia"><div class="dia-cab"><b>' + esc(mayus(fechaCorta(f))) + '</b><button type="button" class="btn chico" data-act="informe" data-f="' + esc(f) + '"' + (S.enviando ? ' disabled' : '') + '>' + (S.enviando === f ? 'Enviando…' : 'Enviar informe por correo') + '</button></div>' + tt + '</div>';
   }).join('') + '</section><div class="espacio"></div>';
@@ -354,15 +368,16 @@ async function cargarAnterior(r){
 function eurC(c){ return (Math.round(c) / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
 function eur0(c){ return (Math.round(c) / 100).toLocaleString('es-ES', { maximumFractionDigits: 0 }) + ' €'; }
 function costeActuaciones(r){
-  var P = r.pagos, F = r.tarifas, T = P.total, E = P.empresa, A = P.autonomos, t = r.totales, ant = S.inf.ant && S.inf.ant.pagos ? S.inf.ant.pagos.total : null;
+  var P = r.pagos, F = r.tarifas, T = P.total, E = P.empresa, A = P.autonomos, M = P.musicos, Tc = P.tecnicos, t = r.totales, ant = S.inf.ant && S.inf.ant.pagos ? S.inf.ant.pagos.total : null;
+  var nAct = T.act - Tc.act, medAct = nAct ? (T.base - Tc.base) / nAct : 0, lj = Tc.act - (Tc.fin || 0), vd = Tc.fin || 0;
   function fila(a, b, c, fuerte){ return '<tr' + (fuerte ? ' class="fuerte"' : '') + '><td>' + a + '</td><td class="n"><b>' + b + '</b></td><td style="white-space:normal;min-width:210px">' + (c || '') + '</td></tr>'; }
   var h = '<section class="caja"><h2>Coste de las actuaciones</h2><div class="kpis">' +
-    '<div class="kpi"><b>' + T.act + '</b><span>actuaciones (' + T.noche + ' a las 00:30 de vie/sáb)</span></div>' +
+    '<div class="kpi"><b>' + nAct + '</b><span>actuaciones (' + T.noche + ' a las 00:30 de vie/sáb)' + (Tc.act ? ' y ' + Tc.act + (Tc.act === 1 ? ' día' : ' días') + ' de técnico' : '') + '</span></div>' +
     '<div class="kpi"><b>' + eur0(T.base) + '</b><span>coste sin IVA</span></div>' +
     '<div class="kpi"><b>' + eur0(T.iva) + '</b><span>IVA (' + F.iva + ' %)</span></div>' +
     '<div class="kpi"><b>' + eur0(T.total) + '</b><span>coste con IVA</span></div></div>' +
     '<div class="scroll"><table><thead><tr><th>Concepto</th><th class="n">Importe</th><th>Cómo se calcula</th></tr></thead><tbody>' +
-    fila('Factura de la empresa de músicos (sin IVA)', eurC(E.base), E.act + ' ' + (E.act === 1 ? 'actuación' : 'actuaciones') + ': ' + (E.act - E.noche) + ' × ' + eurC(F.fact) + ' y ' + E.noche + ' × ' + eurC(F.factNoche) + ' (00:30 de viernes y sábado).') +
+    fila('Factura de la empresa (sin IVA)', eurC(E.base), 'Músicos: ' + (M.act - M.noche) + ' × ' + eurC(F.fact) + ' y ' + M.noche + ' × ' + eurC(F.factNoche) + ' (00:30 de viernes y sábado)' + (Tc.act ? '. Técnicos: ' + lj + ' × ' + eurC(F.tecFact) + ' (lunes a jueves) y ' + vd + ' × ' + eurC(F.tecFactFin) + ' (viernes a domingo)' : '') + '.') +
     fila('IVA de la empresa (' + F.iva + ' %)', eurC(E.iva), 'La empresa siempre cobra más IVA.') +
     fila('Total a pagar a la empresa', eurC(E.total), 'Factura más IVA.', true) +
     fila('Autónomos: factura (sin IVA)', eurC(A.base), A.act ? A.act + ' ' + (A.act === 1 ? 'actuación' : 'actuaciones') + ' a las tarifas de la empresa (' + eurC(F.fact) + ' y ' + eurC(F.factNoche) + '). La empresa no participa: se les considera empresa.' : 'Sin actuaciones de autónomos en el periodo.') +
@@ -370,9 +385,10 @@ function costeActuaciones(r){
     fila('Autónomos: total', eurC(A.total), 'Factura más IVA.', true) +
     fila('Coste total sin IVA', eurC(T.base), 'Empresa más autónomos.') +
     fila('Coste total con IVA', eurC(T.total), 'Lo que sale de caja en el periodo.', true) +
-    fila('Cobran los músicos de la empresa', eurC(E.cobra), 'A ' + eurC(F.pago) + ' por actuación y ' + eurC(F.pagoNoche) + ' en el turno de las 00:30 de viernes y sábado.') +
-    fila('Margen de la empresa', eurC(E.margen), 'Su factura menos lo que cobran los músicos' + (E.base ? ' (' + Math.round(E.margen / E.base * 1000) / 10 + ' % de su factura)' : '') + '.') +
-    fila('Coste medio por actuación', T.act ? eurC(T.base / T.act) : '–', 'Sin IVA' + (T.act ? ' (con IVA: ' + eurC(T.total / T.act) + ')' : '') + '.') +
+    fila('Cobran los músicos de la empresa', eurC(M.cobra), 'A ' + eurC(F.pago) + ' por actuación y ' + eurC(F.pagoNoche) + ' en el turno de las 00:30 de viernes y sábado.') +
+    fila('Cobran los técnicos', eurC(Tc.cobra), Tc.act ? 'Por día: ' + lj + ' × ' + eurC(F.tecPago) + ' (lunes a jueves) y ' + vd + ' × ' + eurC(F.tecPagoFin) + ' (viernes a domingo).' : 'Sin días de técnico en el periodo. Se pagan ' + eurC(F.tecPago) + ' de lunes a jueves y ' + eurC(F.tecPagoFin) + ' de viernes a domingo.') +
+    fila('Margen de la empresa', eurC(E.margen), 'Su factura menos lo que cobran los músicos y técnicos' + (E.base ? ' (' + String(Math.round(E.margen / E.base * 1000) / 10).replace('.', ',') + ' % de su factura)' : '') + '.') +
+    fila('Coste medio por actuación', nAct ? eurC(medAct) : '–', 'Sin IVA' + (nAct ? ' (con IVA: ' + eurC(medAct * (100 + F.iva) / 100) + ')' : '') + '. No cuenta a los técnicos.') +
     fila('Coste medio por día con actuaciones', t.dias ? eurC(T.base / t.dias) : '–', 'Sin IVA, entre ' + t.dias + ' ' + (t.dias === 1 ? 'día' : 'días') + ' con registro.');
   if (ant){
     var dv = ant.base ? (T.base - ant.base) / ant.base * 100 : null;
@@ -380,10 +396,22 @@ function costeActuaciones(r){
   }
   h += '</tbody></table></div><p class="suave" style="margin:10px 0 0">El IVA es IVA soportado y normalmente se puede deducir; confírmalo con tu gestor. Si cambian las tarifas, hay que cambiarlas en el servicio (bloque MUSICOS de Codigo.gs).</p></section><div class="espacio"></div>';
   var pp = r.porPersona.slice().sort(function(a, b){ return (b.total - a.total) || (a.n < b.n ? -1 : 1); }).filter(function(x){ return x.act; });
-  h += '<section class="caja"><h2>Por músico</h2><div class="scroll"><table><thead><tr><th>Músico</th><th>Tipo</th><th class="n">Actuaciones</th><th class="n">00:30 vie/sáb</th><th class="n">Cobra el músico</th><th class="n">Factura sin IVA</th><th class="n">Total con IVA</th></tr></thead><tbody>' +
-    pp.map(function(x){ return '<tr><td>' + esc(x.n) + '</td><td>' + (x.auto ? 'Autónomo' : 'Empresa') + '</td><td class="n">' + x.act + '</td><td class="n">' + x.noche + '</td><td class="n">' + eurC(x.cobra) + '</td><td class="n">' + eurC(x.base) + '</td><td class="n">' + eurC(x.total) + '</td></tr>'; }).join('') +
+  h += '<section class="caja"><h2>Por músico y técnico</h2><div class="scroll"><table><thead><tr><th>Músico o técnico</th><th>Tipo</th><th class="n">Actuaciones (técnico: días)</th><th class="n">00:30 vie/sáb</th><th class="n">Cobra el músico</th><th class="n">Factura sin IVA</th><th class="n">Total con IVA</th></tr></thead><tbody>' +
+    pp.map(function(x){ return '<tr><td>' + esc(x.n) + '</td><td>' + (x.tec ? 'Técnico' : x.auto ? 'Autónomo' : 'Empresa') + '</td><td class="n">' + x.act + '</td><td class="n">' + x.noche + '</td><td class="n">' + eurC(x.cobra) + '</td><td class="n">' + eurC(x.base) + '</td><td class="n">' + eurC(x.total) + '</td></tr>'; }).join('') +
     '<tr class="fuerte"><td>Total</td><td></td><td class="n">' + T.act + '</td><td class="n">' + T.noche + '</td><td class="n">' + eurC(T.cobra) + '</td><td class="n">' + eurC(T.base) + '</td><td class="n">' + eurC(T.total) + '</td></tr></tbody></table></div></section><div class="espacio"></div>';
   if (r.porDia.length && r.diasPeriodo <= 62) h += '<section class="caja"><details><summary>Coste día a día (' + r.porDia.length + ')</summary><div class="scroll"><table><thead><tr><th>Día</th><th class="n">Actuaciones</th><th class="n">Sin IVA</th><th class="n">Con IVA</th></tr></thead><tbody>' + r.porDia.slice().reverse().map(function(x){ return '<tr><td>' + esc(fechaDM(x.f)) + '</td><td class="n">' + x.act + (x.noche ? ' <span class="suave">(' + x.noche + ' a las 00:30)</span>' : '') + '</td><td class="n">' + eurC(x.base) + '</td><td class="n">' + eurC(x.total) + '</td></tr>'; }).join('') + '</tbody></table></div></details></section><div class="espacio"></div>';
+  return h;
+}
+function seccionGrupos(r){
+  var T = r.pagos.total, h = '<section class="caja"><h2>Por grupo</h2><div class="scroll"><table><thead><tr><th>Grupo</th><th class="n">Días</th><th class="n">Personas</th><th class="n">Actuaciones</th><th class="n">Coste sin IVA</th><th class="n">Con IVA</th><th>Facturas</th></tr></thead><tbody>' +
+    r.porGrupo.map(function(x){ return '<tr><td>' + esc(x.g) + '</td><td class="n">' + x.dias + '</td><td class="n">' + x.personas + '</td><td class="n">' + x.act + '</td><td class="n">' + eurC(x.base) + '</td><td class="n">' + eurC(x.total) + '</td><td style="white-space:normal">' + (x.facturas.length ? esc(x.facturas.join(', ')) : '<span class="suave">–</span>') + '</td></tr>'; }).join('') +
+    '<tr class="fuerte"><td>Total</td><td></td><td></td><td class="n">' + T.act + '</td><td class="n">' + eurC(T.base) + '</td><td class="n">' + eurC(T.total) + '</td><td></td></tr></tbody></table></div></section><div class="espacio"></div>';
+  if (r.porDiaGrupo && r.porDiaGrupo.length){
+    var dias = []; r.porDiaGrupo.forEach(function(x){ if (dias.indexOf(x.f) < 0) dias.push(x.f); });
+    h += '<section class="caja"><details' + (dias.length <= 14 ? ' open' : '') + '><summary>Actuaciones por día y grupo (' + dias.length + (dias.length === 1 ? ' día' : ' días') + ')</summary><div class="scroll"><table><thead><tr><th>Día</th><th>Grupo</th><th class="n">Actuaciones</th><th class="n">Sin IVA</th><th class="n">Con IVA</th><th>Facturas</th></tr></thead><tbody>' +
+      dias.slice().reverse().map(function(f){ var fs = r.porDiaGrupo.filter(function(x){ return x.f === f; }); return fs.map(function(x, i){ return '<tr' + (i === 0 ? ' style="border-top:2px solid #1C1A12"' : '') + '><td>' + (i === 0 ? esc(fechaDM(f)) : '') + '</td><td>' + esc(x.g) + '</td><td class="n">' + x.act + '</td><td class="n">' + eurC(x.base) + '</td><td class="n">' + eurC(x.total) + '</td><td style="white-space:normal">' + (x.facturas.length ? esc(x.facturas.join(', ')) : '<span class="suave">–</span>') + '</td></tr>'; }).join(''); }).join('') +
+      '</tbody></table></div></details></section><div class="espacio"></div>';
+  }
   return h;
 }
 function vistaInformes(){
@@ -403,7 +431,7 @@ function vistaInformes(){
     '<p><b>Tarde:</b> llegó más de ' + ((r && r.toleranciaMin) || 5) + ' minutos después de la hora del turno (17:00, 21:30 o 00:30). Hasta esos minutos se considera a tiempo.</p>' +
     '<p><b>Diferencia media:</b> minutos de media respecto a la hora del turno. Con signo «+» llega después, con «−» llega antes.</p>' +
     '<p><b>Sin ningún registro:</b> personas autorizadas que no aparecen ni una vez en el periodo.</p>' +
-    '<p><b>Coste de las actuaciones:</b> cada llegada marcada de un músico es una actuación. La empresa que lleva a los músicos cobra 90 € por actuación (140 € en el turno de las 00:30 de viernes y sábado) más IVA, y paga a cada músico 85 € (110 € en ese turno). Los autónomos no pasan por la empresa: se les considera empresa y facturan 90 € o 140 € más IVA. El viernes o sábado es el de la jornada, como en la tablet (hasta las 06:00 sigue siendo la jornada anterior).</p>' +
+    '<p><b>Coste de las actuaciones:</b> cada llegada marcada de un músico es una actuación. La empresa que lleva a los músicos cobra 90 € por actuación (140 € en el turno de las 00:30 de viernes y sábado) más IVA, y paga a cada músico 85 € (110 € en ese turno). Los autónomos no pasan por la empresa: se les considera empresa y facturan 90 € o 140 € más IVA. Los técnicos (Sebastián y Mihai) se cuentan por día, no por turno: cobran 60 € de lunes a jueves y 75 € de viernes a domingo, y la empresa cobra 65 € y 85 € (más IVA). El viernes o sábado es el de la jornada, como en la tablet (hasta las 06:00 sigue siendo la jornada anterior).</p>' +
     '<p>Si el periodo llega hasta hoy o más allá, el informe se corta en el día de servicio actual. Máximo 370 días.</p></details>';
   if (I.cargando) return h + '<section class="caja"><p class="suave" style="margin:0">Preparando el informe…</p></section>';
   if (!r) return h + '<section class="caja"><p class="suave" style="margin:0">Elige un periodo para ver el informe.</p></section>';
@@ -418,7 +446,9 @@ function vistaInformes(){
     '<div class="kpi"><b>' + pct(t.tarde, t.registros) + '</b><span>llegaron tarde (' + t.tarde + ')</span></div></div>' +
     '<p class="suave" style="margin:0">Diferencia media con la hora del turno: <b>' + esc(signo(t.mediaDif)) + ' min</b>.</p>' +
     '<div class="botones"><button type="button" class="btn" data-act="xlsx">Descargar Excel</button><button type="button" class="btn claro" data-act="correo"' + (I.env ? ' disabled' : '') + '>' + (I.env ? 'Enviando…' : 'Enviar por correo') + '</button></div></section><div class="espacio"></div>';
+  if (r.facturas && (r.facturas.con || r.facturas.sin)) h += '<p class="msg ' + (r.facturas.sin ? 'aviso' : 'bien') + '">' + (r.facturas.sin ? 'Hay <b>' + r.facturas.sin + '</b> ' + (r.facturas.sin === 1 ? 'actuación' : 'actuaciones') + ' sin número de factura (' + r.facturas.con + ' con número). Anótalos en la pestaña «Quién ha venido» antes de sacar el informe.' : 'Todas las actuaciones (' + r.facturas.con + ') tienen su número de factura.') + '</p>';
   if (r.pagos) h += costeActuaciones(r);
+  if (r.porGrupo && r.porGrupo.length) h += seccionGrupos(r);
   h += '<section class="caja"><h2>Por turno</h2><table><thead><tr><th>Turno</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Tarde</th></tr></thead><tbody>' +
     r.porTurno.map(function(x){ return '<tr><td><b>' + esc(x.turno) + '</b></td><td class="n">' + x.registros + '</td><td class="n">' + x.personas + '</td><td class="n">' + x.tarde + (x.registros ? ' <span class="suave">(' + pct(x.tarde, x.registros) + ')</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></section><div class="espacio"></div>';
   h += '<section class="caja"><h2>Por persona</h2><div class="scroll"><table><thead><tr><th>Persona</th><th class="n">Días</th><th class="n">Turnos</th><th class="n">Tarde</th><th class="n">Media (min)</th><th class="n">Máx. tarde</th></tr></thead><tbody>' +
@@ -449,16 +479,17 @@ function hojaXml(filas, anchos){
 }
 function eurN(c){ return Math.round(c) / 100; }
 function hojasInforme(r){
-  var t = r.totales, P = r.pagos, F = r.tarifas, T = P.total, E = P.empresa, A = P.autonomos, dn = t.dias || 0;
+  var t = r.totales, P = r.pagos, F = r.tarifas, T = P.total, E = P.empresa, A = P.autonomos, M = P.musicos, Tc = P.tecnicos, dn = t.dias || 0, nAct = T.act - Tc.act, lj = Tc.act - (Tc.fin || 0), vd = Tc.fin || 0;
   var res = [['Persona', 'Días', 'Turnos', 'Llegadas tarde', 'Diferencia media (min)', 'Máx. tarde (min)']].concat(r.porPersona.map(function(x){ return [x.n, x.dias, x.turnos, x.tarde, x.media, x.maxTarde]; }));
   res.push([]); res.push(['Periodo', fechaDM(r.desde) + ' - ' + fechaDM(r.hasta)]); res.push(['Llegadas', t.registros]); res.push(['Personas distintas', t.personas]); res.push(['Días con registro', t.dias]); res.push(['Llegadas tarde (más de ' + r.toleranciaMin + ' min)', t.tarde]);
   if (r.sinRegistro.length) res.push(['Sin ningún registro', r.sinRegistro.join(', ')]);
-  var det = [['Fecha', 'Turno', 'Persona', 'Hora de llegada', 'Diferencia (min)', 'Tipo', 'Turno especial (00:30 vie/sáb)', 'Cobra el músico (€)', 'Factura sin IVA (€)', 'IVA (€)', 'Total con IVA (€)']].concat(r.detalle.map(function(x){ var iva = Math.round(x[5] * F.iva / 100); return [fechaDM(x[0]), x[1], x[2], x[3], x[4], x[7] ? 'Autónomo' : 'Empresa', x[9] ? 'Sí' : 'No', eurN(x[6]), eurN(x[5]), eurN(iva), eurN(x[5] + iva)]; }));
+  var det = [['Fecha', 'Turno', 'Persona', 'Hora de llegada', 'Diferencia (min)', 'Tipo', 'Turno especial (00:30 vie/sáb)', 'Cobra el músico (€)', 'Factura sin IVA (€)', 'IVA (€)', 'Total con IVA (€)', 'Grupo', 'Nº factura']].concat(r.detalle.map(function(x){ var iva = Math.round(x[5] * F.iva / 100); return [fechaDM(x[0]), x[1], x[2], x[3], x[4], x[10] ? 'Técnico' : x[7] ? 'Autónomo' : 'Empresa', x[9] ? 'Sí' : 'No', eurN(x[6]), eurN(x[5]), eurN(iva), eurN(x[5] + iva), x[12] || '', x[13] || '']; }));
   var tur = [['Turno', 'Llegadas', 'Personas', 'Tarde']].concat(r.porTurno.map(function(x){ return [x.turno, x.registros, x.personas, x.tarde]; }));
   var ant = S.inf.ant && S.inf.ant.pagos ? S.inf.ant.pagos.total : null;
   var cos = [['Concepto', 'Importe (€)', 'Cómo se calcula'],
-    ['Actuaciones', T.act, 'Cada llegada marcada de un músico en un turno. De ellas, ' + T.noche + ' del turno 00:30 de viernes o sábado'],
-    ['Factura de la empresa de músicos (sin IVA)', eurN(E.base), E.act + (E.act === 1 ? ' actuación' : ' actuaciones') + ': ' + (E.act - E.noche) + ' × ' + eurN(F.fact) + ' € y ' + E.noche + ' × ' + eurN(F.factNoche) + ' € (00:30 vie/sáb)'],
+    ['Actuaciones', nAct, 'Cada llegada marcada de un músico en un turno. De ellas, ' + T.noche + ' del turno 00:30 de viernes o sábado'],
+    ['Días de técnico', Tc.act, 'Un día por técnico, sin importar los turnos: ' + lj + ' de lunes a jueves y ' + vd + ' de viernes a domingo'],
+    ['Factura de la empresa (sin IVA)', eurN(E.base), 'Músicos: ' + (M.act - M.noche) + ' × ' + eurN(F.fact) + ' € y ' + M.noche + ' × ' + eurN(F.factNoche) + ' € (00:30 vie/sáb). Técnicos: ' + lj + ' × ' + eurN(F.tecFact) + ' € (lunes a jueves) y ' + vd + ' × ' + eurN(F.tecFactFin) + ' € (viernes a domingo)'],
     ['IVA de la empresa (' + F.iva + ' %)', eurN(E.iva), 'La empresa siempre cobra más IVA'],
     ['Total a pagar a la empresa', eurN(E.total), 'Factura más IVA'],
     ['Autónomos: factura directa (sin IVA)', eurN(A.base), A.act + (A.act === 1 ? ' actuación' : ' actuaciones') + ' a las tarifas de la empresa. La empresa no participa; se les considera empresa'],
@@ -467,24 +498,31 @@ function hojasInforme(r){
     ['Coste total sin IVA', eurN(T.base), 'Empresa más autónomos'],
     ['IVA total', eurN(T.iva), ''],
     ['Coste total con IVA', eurN(T.total), 'Lo que sale de la caja en el periodo'],
-    ['Cobran los músicos de la empresa', eurN(E.cobra), 'Tarifas de ' + eurN(F.pago) + ' € y ' + eurN(F.pagoNoche) + ' € (00:30 vie/sáb)'],
-    ['Margen de la empresa', eurN(E.margen), 'Su factura menos lo que cobran los músicos'],
+    ['Cobran los músicos de la empresa', eurN(M.cobra), 'Tarifas de ' + eurN(F.pago) + ' € y ' + eurN(F.pagoNoche) + ' € (00:30 vie/sáb)'],
+    ['Cobran los técnicos', eurN(Tc.cobra), 'Por día: ' + eurN(F.tecPago) + ' € de lunes a jueves y ' + eurN(F.tecPagoFin) + ' € de viernes a domingo'],
+    ['Margen de la empresa', eurN(E.margen), 'Su factura menos lo que cobran los músicos y técnicos'],
     ['Margen sobre su factura (%)', E.base ? Math.round(E.margen / E.base * 1000) / 10 : 0, ''],
-    ['Coste medio por actuación (sin IVA)', T.act ? eurN(T.base / T.act) : 0, ''],
-    ['Coste medio por actuación (con IVA)', T.act ? eurN(T.total / T.act) : 0, ''],
+    ['Coste medio por actuación (sin IVA)', nAct ? eurN((T.base - Tc.base) / nAct) : 0, 'No cuenta a los técnicos'],
+    ['Coste medio por actuación (con IVA)', nAct ? eurN((T.total - Tc.total) / nAct) : 0, 'No cuenta a los técnicos'],
     ['Coste medio por día con actuaciones (sin IVA)', dn ? eurN(T.base / dn) : 0, T.base ? '' : '']];
   if (ant){ cos.push(['Periodo anterior: coste sin IVA', eurN(ant.base), 'Mismo tramo anterior']); cos.push(['Periodo anterior: coste con IVA', eurN(ant.total), '']); }
   cos.push([]); cos.push(['Periodo', fechaDM(r.desde) + ' - ' + fechaDM(r.hasta), '']); cos.push(['Días con registro', dn, '']);
-  var mus = [['Músico', 'Tipo', 'Actuaciones', 'De ellas 00:30 vie/sáb', 'Cobra el músico (€)', 'Factura sin IVA (€)', 'IVA (€)', 'Total con IVA (€)', 'Margen de la empresa (€)']].concat(r.porPersona.slice().sort(function(a, b){ return (b.total - a.total) || (a.n < b.n ? -1 : 1); }).map(function(x){ return [x.n, x.auto ? 'Autónomo' : 'Empresa', x.act, x.noche, eurN(x.cobra), eurN(x.base), eurN(x.iva), eurN(x.total), eurN(x.margen)]; }));
+  var mus = [['Músico o técnico', 'Tipo', 'Actuaciones (técnico: días)', 'De ellas 00:30 vie/sáb', 'Cobra el músico (€)', 'Factura sin IVA (€)', 'IVA (€)', 'Total con IVA (€)', 'Margen de la empresa (€)']].concat(r.porPersona.slice().sort(function(a, b){ return (b.total - a.total) || (a.n < b.n ? -1 : 1); }).map(function(x){ return [x.n, x.tec ? 'Técnico' : x.auto ? 'Autónomo' : 'Empresa', x.act, x.noche, eurN(x.cobra), eurN(x.base), eurN(x.iva), eurN(x.total), eurN(x.margen)]; }));
   mus.push(['Total', '', T.act, T.noche, eurN(T.cobra), eurN(T.base), eurN(T.iva), eurN(T.total), eurN(T.margen)]);
+  var gru = [['Grupo', 'Días', 'Personas', 'Actuaciones', 'Coste sin IVA (€)', 'IVA (€)', 'Total con IVA (€)', 'Facturas']].concat((r.porGrupo || []).map(function(x){ return [x.g, x.dias, x.personas, x.act, eurN(x.base), eurN(x.iva), eurN(x.total), x.facturas.join(', ')]; }));
+  gru.push(['Total', '', '', T.act, eurN(T.base), eurN(T.iva), eurN(T.total), '']);
+  var dgr = [['Día', 'Grupo', 'Actuaciones', 'Coste sin IVA (€)', 'IVA (€)', 'Total con IVA (€)', 'Facturas']].concat((r.porDiaGrupo || []).map(function(x){ return [fechaDM(x.f), x.g, x.act, eurN(x.base), eurN(x.iva), eurN(x.total), x.facturas.join(', ')]; }));
+  if (r.facturas) cos.push(['Actuaciones con nº de factura', r.facturas.con, r.facturas.sin ? 'Faltan ' + r.facturas.sin + ' sin número' : 'Todas tienen número']);
   var dia = [['Día', 'Actuaciones', 'De ellas 00:30 vie/sáb', 'Coste sin IVA (€)', 'IVA (€)', 'Total con IVA (€)']].concat(r.porDia.map(function(x){ return [fechaDM(x.f), x.act, x.noche, eurN(x.base), eurN(x.iva), eurN(x.total)]; }));
   return [
     { nombre: 'Coste actuaciones', filas: cos, anchos: [46, 16, 70] },
-    { nombre: 'Por músico', filas: mus, anchos: [30, 12, 12, 16, 16, 16, 12, 16, 18] },
+    { nombre: 'Por músico y técnico', filas: mus, anchos: [30, 12, 12, 16, 16, 16, 12, 16, 18] },
+    { nombre: 'Por grupo', filas: gru, anchos: [26, 8, 10, 12, 18, 12, 18, 40] },
+    { nombre: 'Día y grupo', filas: dgr, anchos: [14, 26, 12, 18, 12, 16, 40] },
     { nombre: 'Por día', filas: dia, anchos: [14, 12, 16, 16, 12, 16] },
     { nombre: 'Por persona', filas: res, anchos: [30, 22, 10, 16, 22, 18] },
     { nombre: 'Por turno', filas: tur, anchos: [12, 12, 12, 12] },
-    { nombre: 'Detalle', filas: det, anchos: [14, 10, 30, 16, 18, 12, 22, 16, 16, 12, 16] }];
+    { nombre: 'Detalle', filas: det, anchos: [14, 10, 30, 16, 18, 12, 22, 16, 16, 12, 16, 26, 18] }];
 }
 async function construirXlsx(r){
   if (typeof JSZip === 'undefined') throw new Error('No se ha podido cargar el generador de Excel. Recarga la página.');
@@ -598,7 +636,14 @@ async function informe(f){
 }
 document.addEventListener('submit', function(ev){ ev.preventDefault(); if (ev.target.id === 'f-acceso'){ var c = document.getElementById('codigo').value.trim(); if (!c){ S.msg = { texto: 'Escribe tu código.' }; pintar(); return; } entrar(c); } });
 document.addEventListener('toggle', function(ev){ if (ev.target && ev.target.id === 'ayuda-inf') S.inf.ayuda = ev.target.open; }, true);
-document.addEventListener('change', function(ev){ if (ev.target.id === 'archivo') archivoElegido(ev.target.files && ev.target.files[0]); });
+async function guardarFactura(inp){
+  var f = inp.dataset.f, t = inp.dataset.t, id = inp.dataset.id, v = inp.value.trim(), mk = S.dias[f] && S.dias[f][t] && S.dias[f][t][id];
+  if (!mk || (mk.f || '') === v) return;
+  inp.classList.remove('ok', 'mal'); inp.classList.add('guardando');
+  try { await pedir('personalFactura', { items: [{ fecha: f, turno: t, personaId: id, factura: v }] }); if (v) mk.f = v; else delete mk.f; inp.classList.remove('guardando'); inp.classList.add('ok'); S.inf.r = null; S.inf.ant = null; if (S.msg){ S.msg = null; } }
+  catch (e){ inp.classList.remove('guardando'); inp.classList.add('mal'); if (e.codigo === 'SESION'){ caducada(); pintar(); } else { S.msg = { texto: e.message }; pintar(); window.scrollTo(0, 0); } }
+}
+document.addEventListener('change', function(ev){ if (ev.target.dataset && ev.target.dataset.fa){ guardarFactura(ev.target); return; } if (ev.target.id === 'archivo') archivoElegido(ev.target.files && ev.target.files[0]); });
 document.addEventListener('click', function(ev){
   var b = ev.target.closest && ev.target.closest('[data-act]'); if (!b) return; var a = b.dataset.act;
   if (a === 'salir'){ guardarSesion(null); S.token = ''; S.paso = 'acceso'; S.msg = null; S.vista = null; pintar(); }
