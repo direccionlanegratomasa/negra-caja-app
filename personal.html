@@ -129,6 +129,15 @@ details{ margin-top:12px; } summary{ cursor:pointer; font-weight:700; min-height
 .fil .fa input.guardando{ opacity:.6; }
 .etq.sin{ background:#fff; color:#6B6558; border-style:dashed; }
 .solo-lector{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+.form-add{ display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; align-items:end; margin:10px 0 0; }
+.form-add label{ display:flex; flex-direction:column; gap:4px; font-size:14px; font-weight:600; }
+.form-add input,.form-add select{ min-height:44px; border:2px solid #1C1A12; border-radius:8px; padding:6px 8px; font-size:16px; background:#fff; }
+.fil .fa select{ min-height:40px; max-width:210px; border:2px solid #1C1A12; border-radius:8px; padding:4px 6px; font-size:15px; background:#fff; }
+.fil .fa input[type=time]{ width:120px; }
+.fil .fa select.ok,.fil .fa input.ok{ border-color:#2E7D32; background:#EAF6EA; }
+.fil .fa select.mal{ border-color:#B3261E; }
+.fil.grupos li.off{ opacity:.6; }
+.fil.grupos input{ width:100%; }
 </style>
 </head>
 <body>
@@ -154,7 +163,7 @@ var URL_SERVICIO = 'https://script.google.com/macros/s/AKfycbywMYu2_J6dUi_MiZAar
 var CLAVE_SESION = 'lnt-personal-sesion';
 var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
 var DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
-var S = { token: '', paso: 'acceso', tab: 'lista', msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:00','21:30','00:30'], vista: null, enviando: '', hoy: '', alt: { mes: '', r: null, cargando: false, error: '' }, inf: { per: 'semana', ref: '', desde: '', hasta: '', r: null, cargando: false, aviso: false, ayuda: true, env: false } };
+var S = { token: '', paso: 'acceso', tab: 'lista', grupos: [], gruposAll: null, add: { f: '', t: '', id: '', h: '', g: '' }, msg: null, cargando: false, lista: { personas: [], fuente: null }, mes: '', dias: {}, turnos: ['17:00','21:30','00:30'], vista: null, enviando: '', hoy: '', alt: { mes: '', r: null, cargando: false, error: '' }, inf: { per: 'semana', ref: '', desde: '', hasta: '', r: null, cargando: false, aviso: false, ayuda: true, env: false } };
 
 function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
 function pad(n){ return (n < 10 ? '0' : '') + n; }
@@ -298,18 +307,85 @@ function vistaLista(){
   if (baja.length) h += '<details><summary>' + baja.length + ' dadas de baja (su historial se conserva)</summary>' + chips(baja.map(function(p){ return p.nombre; })) + '</details>';
   return h + '</section>';
 }
+function opcionesGrupo(sel){
+  var l = S.grupos.slice(); if (sel && l.indexOf(sel) < 0) l.push(sel);
+  return '<option value=""' + (sel ? '' : ' selected') + '>Sin grupo</option>' + l.map(function(g){ return '<option value="' + esc(g) + '"' + (g === sel ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('');
+}
+function formAnadir(){
+  var A = S.add, act = S.lista.personas.filter(function(p){ return p.activo !== false; }).sort(function(a, b){ return quitarTildes(a.nombre) < quitarTildes(b.nombre) ? -1 : 1; }), min = isoMas(S.hoy || isoLocal(new Date()), -62);
+  return '<section class="caja"><details' + (A.abierto ? ' open' : '') + ' id="det-add"><summary>Añadir o corregir una llegada de un día anterior</summary>' +
+    '<p class="suave">Elige el día, el turno, la persona, la hora de llegada y el grupo con el que trabajó. Si esa persona ya estaba marcada en ese turno, se corrige su hora y su grupo. Se puede llegar hasta 62 días atrás.</p>' +
+    '<div class="form-add"><label>Día<input type="date" id="add-f" value="' + esc(A.f) + '" min="' + esc(min) + '" max="' + esc(S.hoy) + '"></label>' +
+    '<label>Turno<select id="add-t">' + S.turnos.map(function(t){ return '<option' + (A.t === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></label>' +
+    '<label>Persona<select id="add-id"><option value="">Elige…</option>' + act.map(function(p){ return '<option value="' + esc(p.id) + '"' + (A.id === p.id ? ' selected' : '') + '>' + esc(p.nombre) + '</option>'; }).join('') + '</select></label>' +
+    '<label>Hora de llegada<input type="time" id="add-h" value="' + esc(A.h) + '"></label>' +
+    '<label>Grupo<select id="add-g">' + opcionesGrupo(A.g).replace('Sin grupo', 'Elige…') + '</select></label>' +
+    '<button type="button" class="btn" data-act="addllegada">Guardar llegada</button></div></details></section><div class="espacio"></div>';
+}
+async function marcarAdmin(f, t, id, extra){
+  var j = await pedir('asistenciaMarcar', Object.assign({ fecha: f, turno: t, personaId: id }, extra));
+  if (f.slice(0, 7) === S.mes){ S.dias[f] = S.dias[f] || {}; S.dias[f][t] = S.dias[f][t] || {}; S.dias[f][t][id] = j.marca; }
+  S.inf.r = null; S.inf.ant = null; return j;
+}
+async function cambiarLlegada(inp, extra, que){
+  var f = inp.dataset.f, t = inp.dataset.t, id = inp.dataset.id;
+  inp.classList.remove('ok', 'mal'); inp.classList.add('guardando');
+  try { await marcarAdmin(f, t, id, extra); inp.classList.remove('guardando'); inp.classList.add('ok'); }
+  catch (e){ inp.classList.remove('guardando'); inp.classList.add('mal'); if (e.codigo === 'SESION'){ caducada(); pintar(); } else { S.msg = { texto: e.message }; pintar(); window.scrollTo(0, 0); } }
+}
+async function anadirLlegada(){
+  var A = S.add; A.f = document.getElementById('add-f').value; A.t = document.getElementById('add-t').value; A.id = document.getElementById('add-id').value; A.h = document.getElementById('add-h').value; A.g = document.getElementById('add-g').value; A.abierto = true;
+  if (!A.f || !A.id || !A.h || !A.g){ S.msg = { texto: 'Rellena el día, la persona, la hora y el grupo.' }; pintar(); return; }
+  try { await marcarAdmin(A.f, A.t, A.id, { hora: A.h, grupo: A.g }); var mes = A.f.slice(0, 7); if (mes !== S.mes) await cargarMes(mes); S.msg = { ok: 'Llegada guardada: ' + fechaDM(A.f) + ', turno ' + A.t + '.' }; A.id = ''; A.h = ''; }
+  catch (e){ if (e.codigo === 'SESION'){ caducada(); pintar(); return; } S.msg = { texto: e.message }; }
+  pintar(); window.scrollTo(0, 0);
+}
+async function quitarLlegada(b){
+  if (!confirm('¿Quitar a ' + b.dataset.n + ' del turno ' + b.dataset.t + ' del ' + fechaDM(b.dataset.f) + '? Se borra su hora, grupo y número de factura.')) return;
+  try { await pedir('asistenciaQuitar', { fecha: b.dataset.f, turno: b.dataset.t, personaId: b.dataset.id }); delete S.dias[b.dataset.f][b.dataset.t][b.dataset.id]; S.inf.r = null; S.inf.ant = null; S.msg = { ok: 'Llegada quitada.' }; }
+  catch (e){ if (e.codigo === 'SESION'){ caducada(); pintar(); return; } S.msg = { texto: e.message }; }
+  pintar();
+}
+/* ---------- Grupos ---------- */
+async function cargarGrupos(){
+  try { var j = await pedir('gruposLeer'); S.gruposAll = j.grupos; S.grupos = j.grupos.filter(function(g){ return g.activo; }).map(function(g){ return g.n; }); }
+  catch (e){ if (e.codigo === 'SESION'){ caducada(); } else S.msg = { texto: /acci[oó]n|desconocid|no reconoc|unknown/i.test(e.message) ? 'El servicio de Google todavía no tiene la parte de grupos. Sube el Codigo.gs nuevo y haz una nueva versión.' : e.message }; }
+  pintar();
+}
+async function guardarGrupo(datos){
+  try { var j = await pedir('gruposGuardar', datos); S.gruposAll = j.grupos; S.grupos = j.grupos.filter(function(g){ return g.activo; }).map(function(g){ return g.n; }); S.msg = { ok: 'Grupos guardados.' }; S.inf.r = null; S.inf.ant = null; if (S.tab === 'registro') await cargarMes(S.mes); }
+  catch (e){ if (e.codigo === 'SESION'){ caducada(); pintar(); return; } S.msg = { texto: e.message }; }
+  pintar();
+}
+function vistaGrupos(){
+  var h = '';
+  if (S.msg && S.msg.ok) h += '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>'; else if (S.msg && S.msg.texto) h += '<p class="msg mal" role="alert">' + esc(S.msg.texto) + '</p>';
+  h += '<section class="caja"><h1>Grupos</h1><p class="sub">Son los grupos que aparecen en el desplegable de la tablet. Si cambias un nombre, todas las llegadas ya guardadas con el nombre antiguo pasan a llevar el nuevo en los informes. Un grupo que quitas deja de salir en la tablet, pero su historial se conserva.</p>';
+  if (!S.gruposAll) return h + '<p class="suave">Cargando…</p></section>';
+  h += '<ul class="fil grupos">' + S.gruposAll.map(function(g){
+    return '<li' + (g.activo ? '' : ' class="off"') + '><label class="fa" style="flex:1 1 220px"><span class="solo-lector">Nombre del grupo</span><input type="text" maxlength="40" value="' + esc(g.n) + '" data-gn="' + esc(g.n) + '" style="width:100%"></label>' +
+      '<button type="button" class="btn chico" data-act="grenombrar" data-n="' + esc(g.n) + '">Guardar nombre</button>' +
+      '<button type="button" class="btn chico claro" data-act="grtoggle" data-n="' + esc(g.n) + '" data-a="' + (g.activo ? '0' : '1') + '">' + (g.activo ? 'Quitar de la tablet' : 'Volver a ponerlo') + '</button>' +
+      (g.antes.length ? '<small class="suave" style="flex-basis:100%">Antes se llamaba: ' + esc(g.antes.join(', ')) + '</small>' : '') + '</li>'; }).join('') + '</ul>' +
+    '<h2 style="margin-top:18px">Añadir un grupo</h2><div class="form-add"><label>Nombre<input type="text" id="gr-nuevo" maxlength="40" autocomplete="off"></label><button type="button" class="btn" data-act="gradd">Añadir grupo</button></div></section>';
+  return h;
+}
 function vistaRegistro(){
   var fechas = Object.keys(S.dias).filter(function(f){ return S.turnos.some(function(t){ return S.dias[f][t] && Object.keys(S.dias[f][t]).length; }); }).sort().reverse(), h = '', tot = {};
   h += '<div class="mes"><button type="button" class="btn chico" data-act="mes" data-n="-1" aria-label="Mes anterior">←</button><b>' + esc(mesTexto(S.mes)) + '</b><button type="button" class="btn chico" data-act="mes" data-n="1" aria-label="Mes siguiente">→</button></div>';
   if (S.msg && S.msg.ok) h += '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>'; else if (S.msg && S.msg.texto) h += '<p class="msg mal" role="alert">' + esc(S.msg.texto) + '</p>';
+  h += formAnadir();
   if (!fechas.length) return h + '<section class="caja"><p class="suave" style="margin:0">No hay llegadas registradas en este mes.</p></section>';
   h += '<section class="caja"><h2>Día a día</h2>' + fechas.map(function(f){
     var d = S.dias[f], n = 0, tt = S.turnos.map(function(t){
       var o = d[t] || {}, ids = Object.keys(o).sort(function(a, b){ return minutos(o[a].h) - minutos(o[b].h); });
       ids.forEach(function(id){ n++; var k = id; tot[k] = tot[k] || { n: o[id].n || id, dias: {}, turnos: 0 }; tot[k].turnos++; tot[k].dias[f] = 1; });
-      return '<div class="tur"><b>' + esc(t) + '</b>' + (ids.length ? '<ul class="fil">' + ids.map(function(id){ var mk = o[id];
-        return '<li><span class="fn">' + esc(mk.n || id) + ' <span>' + esc(mk.h) + '</span></span>' + (mk.g ? '<span class="etq">' + esc(mk.g) + '</span>' : '<span class="etq sin">sin grupo</span>') +
-          '<label class="fa"><span class="solo-lector">Nº de factura de ' + esc(mk.n || id) + '</span><input type="text" maxlength="40" placeholder="Nº factura" value="' + esc(mk.f || '') + '" data-fa="1" data-f="' + esc(f) + '" data-t="' + esc(t) + '" data-id="' + esc(id) + '" autocomplete="off"></label></li>'; }).join('') + '</ul>' : ' <span>nadie</span>') + '</div>';
+      return '<div class="tur"><b>' + esc(t) + '</b>' + (ids.length ? '<ul class="fil">' + ids.map(function(id){ var mk = o[id], dat = 'data-f="' + esc(f) + '" data-t="' + esc(t) + '" data-id="' + esc(id) + '"', nm = esc(mk.n || id);
+        return '<li><span class="fn">' + nm + '</span>' +
+          '<label class="fa"><span class="solo-lector">Hora de llegada de ' + nm + '</span><input type="time" value="' + esc(mk.h) + '" data-hh="1" ' + dat + '></label>' +
+          '<label class="fa"><span class="solo-lector">Grupo de ' + nm + '</span><select data-gg="1" ' + dat + '>' + opcionesGrupo(mk.g || '') + '</select></label>' +
+          '<label class="fa"><span class="solo-lector">Nº de factura de ' + nm + '</span><input type="text" maxlength="40" placeholder="Nº factura" value="' + esc(mk.f || '') + '" data-fa="1" ' + dat + ' autocomplete="off"></label>' +
+          '<button type="button" class="btn chico" data-act="quitarllegada" ' + dat + ' data-n="' + nm + '">Quitar</button></li>'; }).join('') + '</ul>' : ' <span>nadie</span>') + '</div>';
     }).join('');
     return '<div class="dia"><div class="dia-cab"><b>' + esc(mayus(fechaCorta(f))) + '</b><button type="button" class="btn chico" data-act="informe" data-f="' + esc(f) + '"' + (S.enviando ? ' disabled' : '') + '>' + (S.enviando === f ? 'Enviando…' : 'Enviar informe por correo') + '</button></div>' + tt + '</div>';
   }).join('') + '</section><div class="espacio"></div>';
@@ -581,13 +657,13 @@ function vistaAltas(){
 }
 function vistaPanel(){
   return '<div class="arriba"><span>Hola, Jorge</span><button type="button" class="btn chico" data-act="salir">Salir</button></div>' +
-    '<div class="pestanas" role="group"><button type="button" data-act="tab" data-t="lista" aria-pressed="' + (S.tab === 'lista') + '">Lista autorizada</button><button type="button" data-act="tab" data-t="registro" aria-pressed="' + (S.tab === 'registro') + '">Quién ha venido</button><button type="button" data-act="tab" data-t="informes" aria-pressed="' + (S.tab === 'informes') + '">Informes</button><button type="button" data-act="tab" data-t="altas" aria-pressed="' + (S.tab === 'altas') + '">Altas SS</button></div>' +
-    (S.tab === 'lista' ? (S.msg && S.msg.ok ? '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>' : '') + vistaLista() : S.tab === 'informes' ? vistaInformes() : S.tab === 'altas' ? vistaAltas() : vistaRegistro());
+    '<div class="pestanas" role="group"><button type="button" data-act="tab" data-t="lista" aria-pressed="' + (S.tab === 'lista') + '">Lista autorizada</button><button type="button" data-act="tab" data-t="registro" aria-pressed="' + (S.tab === 'registro') + '">Quién ha venido</button><button type="button" data-act="tab" data-t="informes" aria-pressed="' + (S.tab === 'informes') + '">Informes</button><button type="button" data-act="tab" data-t="altas" aria-pressed="' + (S.tab === 'altas') + '">Altas SS</button><button type="button" data-act="tab" data-t="grupos" aria-pressed="' + (S.tab === 'grupos') + '">Grupos</button></div>' +
+    (S.tab === 'lista' ? (S.msg && S.msg.ok ? '<div class="msg bien" role="status">' + esc(S.msg.ok) + '</div>' : '') + vistaLista() : S.tab === 'informes' ? vistaInformes() : S.tab === 'altas' ? vistaAltas() : S.tab === 'grupos' ? vistaGrupos() : vistaRegistro());
 }
 function pintar(){
   var app = document.getElementById('app'), foco = document.activeElement && document.activeElement.id;
   app.innerHTML = S.paso === 'acceso' ? vistaAcceso() : vistaPanel();
-  document.getElementById('quien').textContent = S.paso === 'acceso' ? 'Solo para Jorge' : (S.tab === 'lista' ? 'Quién puede entrar a trabajar' : S.tab === 'informes' ? 'Informes de asistencia' : S.tab === 'altas' ? 'Altas en la Seguridad Social' : 'Asistencia por día');
+  document.getElementById('quien').textContent = S.paso === 'acceso' ? 'Solo para Jorge' : (S.tab === 'lista' ? 'Quién puede entrar a trabajar' : S.tab === 'informes' ? 'Informes de asistencia' : S.tab === 'altas' ? 'Altas en la Seguridad Social' : S.tab === 'grupos' ? 'Grupos de música' : 'Asistencia por día');
   if (foco && foco !== 'archivo'){ var e = document.getElementById(foco); if (e && e.focus){ try { e.focus(); } catch (x){} } }
 }
 
@@ -595,7 +671,7 @@ function pintar(){
 function caducada(){ guardarSesion(null); S.token = ''; S.paso = 'acceso'; S.msg = { texto: 'Tu acceso ha caducado. Escribe tu código otra vez.' }; S.vista = null; }
 async function cargarMes(mes){
   var j = await pedir('personalLeer', mes ? { mes: mes } : {});
-  S.hoy = j.dia || S.hoy; S.mes = j.mes; S.dias = j.dias || {}; S.turnos = j.turnos || S.turnos; S.lista = j.lista || S.lista; S.paso = 'panel';
+  S.hoy = j.dia || S.hoy; S.mes = j.mes; S.dias = j.dias || {}; S.turnos = j.turnos || S.turnos; S.lista = j.lista || S.lista; S.grupos = j.grupos || S.grupos; S.paso = 'panel';
 }
 async function entrar(codigo){
   S.cargando = true; S.msg = null; pintar();
@@ -643,11 +719,22 @@ async function guardarFactura(inp){
   try { await pedir('personalFactura', { items: [{ fecha: f, turno: t, personaId: id, factura: v }] }); if (v) mk.f = v; else delete mk.f; inp.classList.remove('guardando'); inp.classList.add('ok'); S.inf.r = null; S.inf.ant = null; if (S.msg){ S.msg = null; } }
   catch (e){ inp.classList.remove('guardando'); inp.classList.add('mal'); if (e.codigo === 'SESION'){ caducada(); pintar(); } else { S.msg = { texto: e.message }; pintar(); window.scrollTo(0, 0); } }
 }
-document.addEventListener('change', function(ev){ if (ev.target.dataset && ev.target.dataset.fa){ guardarFactura(ev.target); return; } if (ev.target.id === 'archivo') archivoElegido(ev.target.files && ev.target.files[0]); });
+document.addEventListener('change', function(ev){
+  var d = ev.target.dataset || {};
+  if (d.fa){ guardarFactura(ev.target); return; }
+  if (d.hh){ if (/^\d{1,2}:\d{2}$/.test(ev.target.value)) cambiarLlegada(ev.target, { hora: ev.target.value }); return; }
+  if (d.gg){ if (ev.target.value) cambiarLlegada(ev.target, { grupo: ev.target.value }); else pintar(); return; }
+  if (d.gn !== undefined) return; if (ev.target.id === 'archivo') archivoElegido(ev.target.files && ev.target.files[0]); });
 document.addEventListener('click', function(ev){
   var b = ev.target.closest && ev.target.closest('[data-act]'); if (!b) return; var a = b.dataset.act;
   if (a === 'salir'){ guardarSesion(null); S.token = ''; S.paso = 'acceso'; S.msg = null; S.vista = null; pintar(); }
   else if (a === 'tab' && b.dataset.t === 'informes'){ S.tab = 'informes'; S.msg = null; ajustarPeriodo(); if (S.inf.r) pintar(); else cargarInforme(); }
+  else if (a === 'tab' && b.dataset.t === 'grupos'){ S.tab = 'grupos'; S.msg = null; pintar(); cargarGrupos(); }
+  else if (a === 'quitarllegada') quitarLlegada(b);
+  else if (a === 'addllegada') anadirLlegada();
+  else if (a === 'gradd'){ var nv = document.getElementById('gr-nuevo').value; guardarGrupo({ op: 'anadir', n: nv }); }
+  else if (a === 'grenombrar'){ var inp = b.parentNode.querySelector('input[data-gn]'); guardarGrupo({ op: 'renombrar', desde: b.dataset.n, n: inp.value }); }
+  else if (a === 'grtoggle') guardarGrupo({ op: 'activo', n: b.dataset.n, activo: b.dataset.a === '1' });
   else if (a === 'tab' && b.dataset.t === 'altas'){ S.tab = 'altas'; S.msg = null; cargarAltas(); }
   else if (a === 'altmes'){ var nm = mesMas(S.alt.mes, +b.dataset.n); if (nm >= ALT_DESDE && nm <= ALT_HASTA) cargarAltas(nm); }
   else if (a === 'per'){ S.inf.per = b.dataset.p; S.inf.r = null; if (S.inf.per !== 'rango'){ S.inf.ref = S.hoy; } ajustarPeriodo(); if (S.inf.per === 'rango'){ S.msg = null; pintar(); } else cargarInforme(); }

@@ -153,7 +153,8 @@ function vistaAcceso(){
     '<button class="btn" type="submit"' + (S.cargando ? ' disabled' : '') + '>' + (S.cargando ? 'Comprobando…' : 'Entrar') + '</button></form></section>';
 }
 function opcionesGrupo(sel){
-  return '<option value="">¿Con qué grupo?</option>' + (S.grupos || []).map(function(g){ return '<option value="' + esc(g) + '"' + (g === sel ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('');
+  var l = (S.grupos || []).slice(); if (sel && l.indexOf(sel) < 0) l.push(sel);
+  return '<option value="">¿Con qué grupo?</option>' + l.map(function(g){ return '<option value="' + esc(g) + '"' + (g === sel ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('');
 }
 function grupoPrevio(id){ var g = ''; S.turnos.forEach(function(t){ if (!g && marcasDe(t)[id] && marcasDe(t)[id].g) g = marcasDe(t)[id].g; }); return g; }
 function filaPersona(p){
