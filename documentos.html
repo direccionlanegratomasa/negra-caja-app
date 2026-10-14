@@ -2429,9 +2429,9 @@ function mayus(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
 function guardarSesion(v){ try { if (v) localStorage.setItem(CLAVE_SESION, JSON.stringify(v)); else localStorage.removeItem(CLAVE_SESION); } catch (e){} }
 function leerSesion(){ try { var v = JSON.parse(localStorage.getItem(CLAVE_SESION) || 'null'); return v && typeof v.token === 'string' && v.expira && Date.parse(v.expira) > Date.now() ? v : null; } catch (e){ return null; } }
 
-async function pedir(accion, datos){
+async function pedir(accion, datos, ms){
   if (URL_SERVICIO.indexOf('http') !== 0) throw new Error('Falta indicar la dirección del servicio.');
-  var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, t = ctl ? setTimeout(function(){ ctl.abort(); }, 45000) : null;
+  var ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, t = ctl ? setTimeout(function(){ ctl.abort(); }, ms || 45000) : null;
   try {
     var cuerpo = Object.assign({ accion: accion }, datos || {}); if (S.token && !cuerpo.token) cuerpo.token = S.token;
     var res = await fetch(URL_SERVICIO, { method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(cuerpo), signal: ctl ? ctl.signal : undefined });
@@ -2439,7 +2439,7 @@ async function pedir(accion, datos){
     if (!j.ok){ var e = new Error(j.error || 'No se ha podido completar.'); e.codigo = j.codigo || ''; throw e; }
     return j;
   } catch (e){
-    if (e && e.name === 'AbortError') throw new Error('El servicio tarda demasiado. Comprueba la conexión e inténtalo de nuevo.');
+    if (e && e.name === 'AbortError'){ var et = new Error(ms ? 'La subida está tardando más de lo normal. Puede que el archivo ya se haya guardado: mira la lista antes de volver a subirlo.' : 'El servicio tarda demasiado. Comprueba la conexión e inténtalo de nuevo.'); et.tiempo = true; throw et; }
     if (e instanceof TypeError) throw new Error('No hay conexión con el servicio. Comprueba internet e inténtalo de nuevo.');
     throw e;
   } finally { if (t) clearTimeout(t); }
@@ -2523,7 +2523,7 @@ function formSubir(){
     '<div class="fila"><label for="s-nota">Nota (opcional)</label><textarea id="s-nota" maxlength="300" placeholder="Por ejemplo: el original está en el despacho"></textarea></div></div>' +
     '<p class="suave" id="s-ayuda" style="margin:0">Si eliges varios archivos, cada uno se guarda con su propio nombre; después podrás cambiar el nombre y la fecha de cada uno.</p>' +
     '<p class="suave">Las fotos se reducen automáticamente. Máximo 12 MB por archivo.</p>' +
-    '<div class="botones"><button type="button" class="btn" data-act="subir-ok"' + (S.ocupado ? ' disabled' : '') + '>' + (S.ocupado === 'subiendo' ? esc(S.progreso || 'Subiendo…') : 'Subir') + '</button><button type="button" class="btn claro" data-act="subir-no"' + (S.ocupado ? ' disabled' : '') + '>Cancelar</button></div></section>';
+    '<div class="botones"><button type="button" class="btn" data-act="subir-ok"' + (S.ocupado ? ' disabled' : '') + '>' + (S.ocupado === 'subiendo' ? esc(S.progreso || 'Subiendo…') : 'Subir') + '</button><button type="button" class="btn claro" data-act="subir-no"' + (S.ocupado ? ' disabled' : '') + '>Cancelar</button></div>' + (S.ocupado === 'subiendo' ? '<p class="msg aviso" role="status" style="margin-top:12px">Subiendo… los archivos grandes pueden tardar un par de minutos. No cierres ni recargues la página.</p>' : '') + '</section>';
 }
 function filaDoc(d){
   if (S.edit === d.id){
@@ -2633,7 +2633,7 @@ async function subirArchivos(){
     S.progreso = 'Subiendo ' + (i + 1) + ' de ' + files.length + '…'; pintar();
     try {
       var a = await prepararArchivo(files[i]);
-      await pedir('inspSubir', { cat: cat, titulo: uno ? titulo : files[i].name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '), nombre: a.nombre, b64: a.b64, vence: uno ? vence : '', nota: uno ? nota : '' });
+      await pedir('inspSubir', { cat: cat, titulo: uno ? titulo : files[i].name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '), nombre: a.nombre, b64: a.b64, vence: uno ? vence : '', nota: uno ? nota : '' }, 280000);
       hechos++;
     } catch (e){ if (e.codigo === 'SESION'){ caducada(); S.ocupado = ''; return pintar(); } fallos.push(e.message); }
   }
