@@ -80,6 +80,12 @@ tr.fuerte td{ font-weight:700; background:var(--amarillo-claro, #FFF6BF); border
 .grupo{ margin:14px 0 0; }
 .grupo h3{ margin:0 0 6px; font-size:17px; }
 .grupo.alta h3{ color:var(--sube); } .grupo.baja h3{ color:var(--baja); }
+.lista-alta{ list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.fila-alta{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; border:1.5px solid var(--linea); border-radius:8px; padding:6px 10px; background:var(--blanco); }
+.fila-alta .opc{ display:flex; gap:6px; flex-basis:100%; justify-content:flex-end; }
+.btn.e-alta{ background:#DDF1D8; color:#1B5E20; border-color:#1B5E20; }
+.btn.e-falta{ background:#F8D2D0; color:#9C0006; border-color:#9C0006; }
+.btn.estado{ min-height:40px; }
 .chips{ display:flex; flex-wrap:wrap; gap:6px; margin:0; padding:0; list-style:none; }
 .chips li{ border:1.5px solid var(--linea); border-radius:8px; padding:4px 10px; background:var(--blanco); font-size:15px; }
 .alta .chips li{ background:var(--sube-bg); border-color:var(--sube); }
@@ -631,12 +637,25 @@ async function correoInforme(){
   I.env = false; pintar(); window.scrollTo(0, 0);
 }
 /* ---------- Altas en la Seguridad Social (solo nombres y estado; sin DNI ni NUSS) ---------- */
-var ALT_DESDE = '2026-10', ALT_HASTA = '2027-09';
+var ALT_DESDE = '2026-02', ALT_HASTA = '2027-09';
 async function cargarAltas(mes){
   var A = S.alt; A.cargando = true; A.error = ''; pintar();
   try { var j = await pedir('altasLeer', { mes: mes || A.mes || '' }); A.r = j; A.mes = j.mes; }
   catch (e){ if (e.codigo === 'SESION'){ caducada(); } else { A.r = null; A.error = /acci[oó]n|desconocid|no reconoc|unknown/i.test(e.message) ? 'El servicio de Google todavía no tiene la parte de altas. Hay que pegar el código de altas en el Apps Script (te lo ha preparado Claude).' : e.message; } }
   A.cargando = false; pintar();
+}
+async function marcarAlta(nombre, estado){
+  var A = S.alt, mes = A.mes; A.menu = ''; A.guardando = true; A.error = ''; pintar();
+  try { var j = await pedir('altasMarcar', { mes: mes, nombre: nombre, estado: estado }); A.r = j; A.mes = j.mes; A.aviso = nombre + ' · ' + mesTexto(mes) + ': ' + (estado === 'alta' ? 'Alta' : 'FALTA'); }
+  catch (e){ if (e.codigo === 'SESION'){ caducada(); return; } A.error = /acci[oó]n|desconocid|no reconoc|unknown/i.test(e.message) ? 'El servicio de Google todavía no tiene la nueva versión de altas. Sube Codigo.gs con una versión nueva.' : e.message; }
+  A.guardando = false; pintar();
+}
+function filaAlta(nombre, fecha, tiene){
+  var A = S.alt, ab = A.menu === nombre, h = '<li class="fila-alta"><span class="nom">' + esc(nombre) + (fecha ? ' <span class="suave">· ' + esc(fecha) + '</span>' : '') + '</span>' +
+    '<button type="button" class="btn chico estado ' + (tiene ? 'e-alta' : 'e-falta') + '" data-act="altmenu" data-n="' + esc(nombre) + '" aria-expanded="' + ab + '">' + (tiene ? 'Alta' : 'FALTA') + '</button>';
+  if (ab) h += '<span class="opc"><button type="button" class="btn chico e-alta" data-act="altset" data-n="' + esc(nombre) + '" data-e="alta"' + (tiene ? ' disabled' : '') + '>Alta</button>' +
+    (tiene && A.seguro === nombre ? '<button type="button" class="btn chico e-falta" data-act="altset" data-n="' + esc(nombre) + '" data-e="falta">¿Seguro? Se borra el alta</button>' : '<button type="button" class="btn chico e-falta" data-act="' + (tiene ? 'altseguro' : 'altset') + '" data-n="' + esc(nombre) + '" data-e="falta"' + (!tiene ? ' disabled' : '') + '>Falta</button>') + '</span>';
+  return h + '</li>';
 }
 function vistaAltas(){
   var A = S.alt, r = A.r, m = A.mes || (r && r.mes) || '', h = '';
@@ -650,8 +669,9 @@ function vistaAltas(){
     '<div class="kpi"><b>' + faltan.length + '</b><span>sin alta este mes</span></div></div>' +
     '<p class="suave" style="margin:0">' + (faltan.length ? 'Cada trabajador debe tener un alta al mes.' : 'Todos los trabajadores tienen su alta este mes.') + (r.actualizado ? ' Datos del ' + esc(r.actualizado) + '.' : '') + '</p></section><div class="espacio"></div>';
   if (noAut.length) h += '<section class="caja baja"><h2>NO AUTORIZADO · ' + noAut.length + '</h2><p class="suave">Tienen alta este mes pero no están en la lista autorizada.</p>' + chips(noAut.map(function(x){ return x.nombre + (x.fecha ? ' · ' + x.fecha : ''); })) + '</section><div class="espacio"></div>';
-  if (faltan.length) h += '<section class="caja baja"><h2>Faltan · ' + faltan.length + '</h2>' + chips(faltan) + '</section><div class="espacio"></div>';
-  if (con.length) h += '<section class="caja alta"><h2>Con alta · ' + con.length + '</h2>' + chips(con.map(function(x){ return x.nombre + (x.fecha ? ' · ' + x.fecha : ''); })) + '</section><div class="espacio"></div>';
+  if (A.aviso) h += '<div class="msg bien" role="status">' + esc(A.aviso) + '</div>';
+  if (faltan.length) h += '<section class="caja baja"><h2>Faltan · ' + faltan.length + '</h2><p class="suave">Pincha sobre FALTA para ponerle el alta.</p><ul class="lista-alta">' + faltan.map(function(n){ return filaAlta(n, '', false); }).join('') + '</ul></section><div class="espacio"></div>';
+  if (con.length) h += '<section class="caja alta"><h2>Con alta · ' + con.length + '</h2><p class="suave">Pincha sobre Alta si quieres cambiarlo a FALTA.</p><ul class="lista-alta">' + con.map(function(x){ return filaAlta(x.nombre, x.fecha, true); }).join('') + '</ul></section><div class="espacio"></div>';
   if (auto.length) h += '<section class="caja"><h2>Autónomos · ' + auto.length + '</h2><p class="suave">Están en la lista pero no llevan alta de la empresa: fuera del control mensual.</p>' + chips(auto) + '</section>';
   return h;
 }
@@ -736,7 +756,10 @@ document.addEventListener('click', function(ev){
   else if (a === 'grenombrar'){ var inp = b.parentNode.querySelector('input[data-gn]'); guardarGrupo({ op: 'renombrar', desde: b.dataset.n, n: inp.value }); }
   else if (a === 'grtoggle') guardarGrupo({ op: 'activo', n: b.dataset.n, activo: b.dataset.a === '1' });
   else if (a === 'tab' && b.dataset.t === 'altas'){ S.tab = 'altas'; S.msg = null; cargarAltas(); }
-  else if (a === 'altmes'){ var nm = mesMas(S.alt.mes, +b.dataset.n); if (nm >= ALT_DESDE && nm <= ALT_HASTA) cargarAltas(nm); }
+  else if (a === 'altmenu'){ S.alt.menu = S.alt.menu === b.dataset.n ? '' : b.dataset.n; S.alt.seguro = ''; S.alt.aviso = ''; pintar(); }
+  else if (a === 'altseguro'){ S.alt.seguro = b.dataset.n; pintar(); }
+  else if (a === 'altset'){ marcarAlta(b.dataset.n, b.dataset.e); }
+  else if (a === 'altmes'){ S.alt.menu = ''; S.alt.aviso = ''; var nm = mesMas(S.alt.mes, +b.dataset.n); if (nm >= ALT_DESDE && nm <= ALT_HASTA) cargarAltas(nm); }
   else if (a === 'per'){ S.inf.per = b.dataset.p; S.inf.r = null; if (S.inf.per !== 'rango'){ S.inf.ref = S.hoy; } ajustarPeriodo(); if (S.inf.per === 'rango'){ S.msg = null; pintar(); } else cargarInforme(); }
   else if (a === 'mover'){ S.inf.ref = moverRef(S.inf.per, S.inf.ref, +b.dataset.n); cargarInforme(); }
   else if (a === 'ver'){ var d1 = document.getElementById('r-desde').value, d2 = document.getElementById('r-hasta').value; if (!d1 || !d2){ S.msg = { texto: 'Elige las dos fechas.' }; pintar(); return; } if (d1 > d2){ S.msg = { texto: 'La fecha de inicio es posterior a la de fin.' }; pintar(); return; } S.inf.desde = d1; S.inf.hasta = d2; cargarInforme(); }
