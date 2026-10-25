@@ -831,7 +831,7 @@ async function pedir(url, opciones, ms){
 async function ventas(token){
   var j = await pedir(URL_SERVICIO, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ accion: 'ventas', token: token || '' }) }, 60000);
   if (!j.ok) throw error(j);
-  return { clasif: j.clasif || null, estado: j.estado || null, shards: j.shards || [], servicio: j.servicio || null };
+  return { clasif: j.clasif || null, estado: j.estado || null, shards: j.shards || [], servicio: j.servicio || null, camareros: j.camareros || null };
 }
 /* Acciones del servicio (login, sesion, publicar, borrarDia, clasificar). Se envía como texto simple para evitar la comprobación previa de CORS. */
 async function accion(nombre, datos, token){
@@ -1072,6 +1072,49 @@ function vistaEntradas(){
     h += '<section class="bloque"><h2>Por tipo de entrada</h2><ul class="filas cats">' + lt.map(function(t){
       return '<li><span class="nom">' + esc(t.n) + '</span><span class="eur">' + T.fmtEur(t.c) + '</span><span class="det"><span>' + T.fmtNum(t.u) + ' uds.</span><span>' + (t.u ? 'medio ' + T.fmtEur(Math.round(t.c / t.u)) : '') + '</span></span><div class="barra"><i style="width:' + Math.max(0, t.c) / mt * 100 + '%;background:#FFD400"></i></div></li>'; }).join('') + '</ul></section>';
   }
+  return h;
+}
+
+/* ============================== CAMAREROS ============================== */
+/* Ranking de ventas por usuario de Ágora (con IVA). PUERTA es la taquilla de entradas: no es un camarero. Añade aquí los nombres que no deban contar. */
+var CAM_EXCLUIR = ['PUERTA', 'MANNY'];
+function camNombre(u){ return String(u).toLowerCase().replace(/(^|\s)(\S)/g, function(_, a, b){ return a + b.toUpperCase(); }); }
+function camTotales(fechas){
+  var por = {}, con = 0;
+  (fechas || []).forEach(function(f){
+    var d = S.cam && S.cam.dias ? S.cam.dias[f] : null; if (!d) return; con++;
+    Object.keys(d).forEach(function(u){
+      var k = String(u).replace(/\s+/g, ' ').trim().toUpperCase();
+      if (!k || CAM_EXCLUIR.indexOf(k) >= 0) return;
+      var c = Number(d[u]) || 0, x = por[k] || (por[k] = { n: k, c: 0, dias: 0 });
+      x.c += c; if (c > 0) x.dias++;
+    });
+  });
+  var lista = Object.keys(por).map(function(k){ return por[k]; }).filter(function(x){ return x.c !== 0 || x.dias > 0; }).sort(function(a, b){ return b.c - a.c || a.n.localeCompare(b.n, 'es'); });
+  return { lista: lista, total: lista.reduce(function(s2, x){ return s2 + x.c; }, 0), diasConDatos: con };
+}
+function vistaCamareros(){
+  var m = S.m, h = barraPeriodo(), per = T.resolverPeriodo(m, perState());
+  if (!S.cam || !Object.keys(S.cam.dias).length) return h + '<div class="aviso info">Todavía no hay ventas por camarero. Se guardan cada día desde Ágora; para cargar los días anteriores hay que ejecutar <b>camarerosRellenar</b> en el Apps Script.</div>';
+  if (!per.fechas.length) return h + '<div class="vacio"><b>No hay datos en este periodo</b>Elige otro periodo con ventas cargadas.</div>';
+  var t = camTotales(per.fechas);
+  if (!t.diasConDatos) return h + '<div class="vacio"><b>No hay ventas por camarero en este periodo</b>Hay datos de camareros desde el ' + T.fmtFecha(Object.keys(S.cam.dias).sort()[0]) + '. Elige un periodo posterior.</div>';
+  var comp = T.periodoComparable(m, per), tp = comp && comp.completo ? camTotales(comp.fechas) : null;
+  var prev = {}; if (tp && tp.diasConDatos) tp.lista.forEach(function(x){ prev[x.n] = x; });
+  var faltan = per.fechas.length - t.diasConDatos, mx = t.lista.length ? Math.max(1, t.lista[0].c) : 1;
+  var jor = t.lista.reduce(function(s2, x){ return s2 + x.dias; }, 0);
+  h += '<section class="bloque"><h2>Ventas por camarero · ' + esc(per.etiqueta) + '</h2><p class="sub-txt">Importe vendido por cada usuario de Ágora (con IVA). La taquilla (PUERTA) y MANNY no cuentan. «Jornadas» son los días en que ese camarero vendió algo.</p>';
+  if (faltan > 0) h += '<div class="aviso warn">Faltan datos por camarero de ' + faltan + ' ' + plural(faltan, 'día', 'días') + ' de este periodo, así que el ranking es parcial.</div>';
+  h += '<div class="estadisticas">' +
+    kpiS('Vendido por camareros', T.fmtEur(t.total), tp && tp.diasConDatos === t.diasConDatos ? T.pctVar(t.total, tp.total) : null, t.lista.length + ' ' + plural(t.lista.length, 'camarero', 'camareros'), per) +
+    kpiS('Mejor camarero', t.lista.length ? esc(camNombre(t.lista[0].n)) : '—', null, t.lista.length ? T.fmtEur(t.lista[0].c) : '', per) +
+    kpiS('Media por jornada', jor ? T.fmtEur(Math.round(t.total / jor)) : '—', null, jor + ' ' + plural(jor, 'jornada trabajada', 'jornadas trabajadas'), per) + '</div>';
+  h += '<ul class="filas cats">' + t.lista.map(function(x, i){
+    var p = prev[x.n], dv = p && p.c > 0 ? T.pctVar(x.c, p.c) : null, cd = dv === null ? '' : claseDelta(dv);
+    return '<li><span class="nom"><b>' + (i + 1) + '.</b> ' + esc(camNombre(x.n)) + '</span><span class="eur">' + T.fmtEur(x.c) + '</span><span class="det"><span>' + x.dias + ' ' + plural(x.dias, 'jornada', 'jornadas') + ' · media ' + (x.dias ? T.fmtEur(Math.round(x.c / x.dias)) : '—') + ' · ' + T.fmtPct(t.total > 0 ? x.c / t.total * 100 : 0) + ' del total</span>' +
+      (cd ? '<span class="delta ' + cd + '">' + (dv > 0 ? '+' : '') + T.fmtPct(dv) + '</span>' : '') + '</span>' +
+      '<div class="barra"><i style="width:' + Math.max(0, x.c) / mx * 100 + '%;background:' + (i === 0 ? '#FFD400' : '#1C1A12') + '"></i></div></li>';
+  }).join('') + '</ul></section>';
   return h;
 }
 
@@ -1498,7 +1541,7 @@ function vistaDatos(){
 function vistaVacia(){ return '<div class="vacio"><b>Todavía no hay ventas cargadas</b>Cuando se cargue el primer día, aparecerá aquí el resumen.</div>'; }
 function pintarPag(){
   var m = S.m, el = document.getElementById('pag'); if (!el) return;
-  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : S.tab === 'simulaciones' ? vistaSimulaciones() : vistaDatos());
+  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : S.tab === 'camareros' ? vistaCamareros() : S.tab === 'simulaciones' ? vistaSimulaciones() : vistaDatos());
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function(b){ b.setAttribute('aria-selected', String(b.dataset.v === S.tab)); });
   var pl = document.querySelector('.grafico .plot'); if (pl) pl.scrollLeft = pl.scrollWidth;
   var cont = document.querySelector('.tabs-in'), tsel = document.querySelector('.tab[aria-selected="true"]');       // en pantallas estrechas, la pestaña activa queda a la vista
@@ -1508,7 +1551,7 @@ function armarMarco(){
   var m = S.m, ult = T.ultimaFecha(m);
   app.innerHTML = '<header class="cab"><div class="cab-in">' + MARCA + '' +
     '<div class="cab-txt"><b>Ventas · panel de socios</b><small>' + (ult ? 'Datos hasta el ' + T.fmtFechaLarga(ult) : 'Sin datos todavía') + ' · <button type="button" class="enlace" data-act="salir">Salir</button></small></div></div></header>' +
-    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['simulaciones', 'Simulaciones'], ['datos', 'Datos']].map(function(t){
+    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['camareros', 'Camareros'], ['simulaciones', 'Simulaciones'], ['datos', 'Datos']].map(function(t){
       return '<button type="button" role="tab" class="tab" data-act="tab" data-v="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></nav><main class="pag" id="pag"></main>';
   pintarPag();
 }
@@ -1571,7 +1614,7 @@ function actuar(act, v, k){
     case 'prod-orden': S.prod.orden = v; break;
     case 'reintentar': iniciar(); return;
     case 'entrar': entrar(); return;
-    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }; pintarAcceso(); return;
+    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.cam = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }; pintarAcceso(); return;
     default: if (act.indexOf('sim-') === 0 && simAccion(act, v, k) !== false) break; return;
   }
   pintarPag(); window.scrollTo(0, antes);
@@ -1636,7 +1679,7 @@ async function iniciar(){
     var d = await API.ventas(ses.token);
     S.m = T.crearModelo(d.shards, d.clasif); S.estado = d.estado || null; S.ses = ses;
     S.svInfo = d.servicio ? { error: d.servicio.error || '', desactualizado: !!d.servicio.desactualizado, leido: d.servicio.leido || '', descartados: d.servicio.descartados || 0 } : null;
-    S.sv = T.crearServicio(d.servicio && d.servicio.dias ? d.servicio.dias : []); S.srv = { sel: null, todos: false, clave: '', serie: [] }; S.sim.hist = {};
+    S.cam = d.camareros && d.camareros.dias ? d.camareros : null; S.sv = T.crearServicio(d.servicio && d.servicio.dias ? d.servicio.dias : []); S.srv = { sel: null, todos: false, clave: '', serie: [] }; S.sim.hist = {};
     S.mV = S.m; S.mS = modeloServicio(S.mV, S.sv); if (S.tab === 'servicio') S.m = S.mS;
     var ult = T.ultimaFecha(S.m);
     S.anchor = ult;
