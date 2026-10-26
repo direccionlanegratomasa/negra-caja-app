@@ -1118,6 +1118,94 @@ function vistaCamareros(){
   return h;
 }
 
+
+/* ============================== SERVICIOS (horas nocturnas del personal · Yurest) ============================== */
+/* Pide al servicio las horas fichadas en Yurest dentro de dos tramos: 22:02–23:59 (primer rango) y 00:01–05:00 (segundo rango).
+   El cálculo lo hace el servicio (yurest_servicios.gs); aquí solo se elige el periodo y se enseña/descarga el resultado. */
+function svsHoy(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function svsIni(){ return { desde: '', hasta: '', datos: null, cargando: false, error: '' }; }
+/* Las dos fechas son obligatorias: no hay valores por defecto ni atajos. Devuelve el motivo si no se puede sacar el informe, o '' si está bien. */
+function svsProblema(v){
+  if (!T.esIso(v.desde) || !T.esIso(v.hasta)) return 'Elige desde cuándo y hasta cuándo.';
+  if (v.desde > v.hasta) return 'La fecha «Desde» no puede ser posterior a «Hasta».';
+  if (T.isoNum(v.hasta) - T.isoNum(v.desde) + 1 > 62) return 'Elige como máximo 62 días seguidos.';
+  if (v.hasta > svsHoy()) return 'La fecha «Hasta» no puede ser futura.';
+  return '';
+}
+function svsHM(min){ var m = Math.round(min), h = Math.floor(m / 60), r = m % 60; return h + ':' + (r < 10 ? '0' : '') + r; }
+function svsDec(min){ return (Math.round(min / 60 * 100) / 100).toFixed(2).replace('.', ','); }
+async function svsSacar(){
+  var v = S.svs; if (!v || v.cargando) return;
+  var prob = svsProblema(v); if (prob){ v.error = prob; if (S.tab === 'servicios') pintarPag(); return; }
+  v.cargando = true; v.error = ''; v.datos = null; if (S.tab === 'servicios') pintarPag();
+  try {
+    var ses = getSes(); var r = await API.accion('serviciosLeer', { desde: v.desde, hasta: v.hasta }, ses ? ses.token : '');
+    v.datos = r;
+  } catch (e){
+    if (e && e.codigo === 'SESION'){ limpiarSes(); v.cargando = false; S.cargando = false; pintarAcceso(e.message); return; }
+    v.error = e && e.message ? e.message : String(e);
+  }
+  v.cargando = false; if (S.tab === 'servicios') pintarPag();
+}
+function svsCsvTexto(d){
+  var q = function(x){ x = String(x); return /[";\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }, L = [];
+  L.push(['Horas nocturnas del personal (Yurest)', T.fmtFecha(d.desde) + ' - ' + T.fmtFecha(d.hasta)].map(q).join(';'));
+  L.push(['Primer rango = 22:02 a 23:59 · Segundo rango = 00:01 a 05:00'].map(q).join(';'));
+  L.push('');
+  L.push(['Empleado', 'Jornadas contadas', 'Primer rango (h:mm)', 'Primer rango (horas)', 'Segundo rango (h:mm)', 'Segundo rango (horas)', 'Total (h:mm)', 'Total (horas)'].join(';'));
+  d.filas.forEach(function(f){ L.push([f.n, f.dias, svsHM(f.p1), svsDec(f.p1), svsHM(f.p2), svsDec(f.p2), svsHM(f.p1 + f.p2), svsDec(f.p1 + f.p2)].map(q).join(';')); });
+  L.push(''); L.push('Detalle por día'); L.push(['Fecha', 'Empleado', 'Entrada', 'Salida', 'Primer rango (h:mm)', 'Segundo rango (h:mm)'].join(';'));
+  d.detalle.forEach(function(x){ L.push([T.fmtFecha(x.fecha), x.n, x.entrada, x.salida, svsHM(x.p1), svsHM(x.p2)].map(q).join(';')); });
+  if (d.excluidos.length){ L.push(''); L.push('Días NO contados'); L.push(['Fecha', 'Empleado', 'Motivo'].join(';')); d.excluidos.forEach(function(x){ L.push([T.fmtFecha(x.fecha), x.n, x.motivo].map(q).join(';')); }); }
+  return '﻿' + L.join('\r\n');
+}
+function svsCsv(){
+  var d = S.svs && S.svs.datos; if (!d) return;
+  var blob = new Blob([svsCsvTexto(d)], { type: 'text/csv;charset=utf-8' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'servicios_horas_nocturnas_' + d.desde + '_a_' + d.hasta + '.csv';
+  document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function vistaServicios(){
+  if (!S.svs) S.svs = svsIni();
+  var v = S.svs, d = v.datos;
+  var h = '<section class="bloque"><h2>Servicios · horas nocturnas del personal</h2><p class="sub-txt">Horas fichadas en Yurest dentro de dos tramos: <b>nocturnas de primer rango</b> (22:02 a 23:59) y <b>nocturnas de segundo rango</b> (00:01 a 05:00). Un turno que cruza la medianoche cuenta cada tramo por separado. Si a alguien le falta un fichaje, ese día no se cuenta para esa persona.</p>' +
+    '<div class="periodo"><div class="rango-caja"><div class="rangos"><div><label for="svs-d">Desde (obligatorio)</label><input class="campo" type="date" id="svs-d" data-f="svs-desde" value="' + v.desde + '"></div>' +
+    '<div><label for="svs-h">Hasta (obligatorio)</label><input class="campo" type="date" id="svs-h" data-f="svs-hasta" value="' + v.hasta + '"></div></div>' +
+    '<div class="fila"><button type="button" class="btn" data-act="svs-sacar"' + (v.cargando || svsProblema(v) ? ' disabled' : '') + '>' + (v.cargando ? 'Consultando Yurest…' : 'Sacar informe') + '</button></div></div></div>';
+  var prob = svsProblema(v);
+  if (v.error) h += '<div class="aviso err" role="alert">' + esc(v.error) + '</div>';
+  else if (prob && !v.datos) h += '<p class="sub-txt">' + esc(prob) + '</p>';
+  if (v.cargando) h += '<div class="aviso info" role="status">Consultando los fichajes en Yurest. Puede tardar unos segundos.</div>';
+  if (d){
+    var p1 = 0, p2 = 0; d.filas.forEach(function(f){ p1 += f.p1; p2 += f.p2; });
+    h += '<h3 style="margin:16px 0 2px;font-size:17px">' + esc(T.fmtFecha(d.desde)) + (d.desde !== d.hasta ? ' – ' + esc(T.fmtFecha(d.hasta)) : '') + '</h3>';
+    if (!d.filas.length && !d.excluidos.length) h += '<div class="vacio"><b>No hay fichajes en este periodo</b>Yurest no devuelve fichajes de esos días.</div>';
+    else {
+      h += '<div class="estadisticas">' +
+        '<div><small>Empleados</small><b>' + d.filas.length + '</b><em>con jornada contada</em></div>' +
+        '<div><small>Primer rango</small><b>' + svsHM(p1) + ' h</b><em>22:02 – 23:59</em></div>' +
+        '<div><small>Segundo rango</small><b>' + svsHM(p2) + ' h</b><em>00:01 – 05:00</em></div>' +
+        '<div><small>Total nocturnas</small><b>' + svsHM(p1 + p2) + ' h</b><em>' + svsDec(p1 + p2) + ' horas</em></div></div>';
+      if (d.filas.length){
+        h += '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Empleado</th><th>Jornadas</th><th>1.er rango</th><th>2.º rango</th><th>Total</th></tr></thead><tbody>' +
+          d.filas.map(function(f){ return '<tr><td>' + esc(f.n) + '</td><td>' + f.dias + '</td><td>' + svsHM(f.p1) + '</td><td>' + svsHM(f.p2) + '</td><td><b>' + svsHM(f.p1 + f.p2) + '</b></td></tr>'; }).join('') +
+          '<tr><td><b>Total</b></td><td></td><td><b>' + svsHM(p1) + '</b></td><td><b>' + svsHM(p2) + '</b></td><td><b>' + svsHM(p1 + p2) + '</b></td></tr></tbody></table></div>' +
+          '<p class="sub-txt">Horas y minutos (h:mm). «Jornadas» son los días con fichaje completo contados. El primer rango suma 22:02–23:59 y el segundo 00:01–05:00.</p>';
+      }
+      if (d.excluidos.length){
+        h += '<div class="aviso warn"><b>Días no contados (' + d.excluidos.length + ')</b><br>' + d.excluidos.map(function(x){ return esc(x.n) + ' · ' + esc(T.fmtFecha(x.fecha)) + ' · ' + esc(x.motivo); }).join('<br>') + '</div>';
+      }
+      if (d.detalle.length){
+        h += '<details style="margin:10px 0"><summary style="cursor:pointer;font-weight:700">Detalle por día</summary><div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Fecha</th><th>Empleado</th><th>Entrada</th><th>Salida</th><th>1.er</th><th>2.º</th></tr></thead><tbody>' +
+          d.detalle.map(function(x){ return '<tr><td>' + esc(T.fmtFecha(x.fecha)) + '</td><td>' + esc(x.n) + '</td><td>' + x.entrada + '</td><td>' + x.salida + '</td><td>' + svsHM(x.p1) + '</td><td>' + svsHM(x.p2) + '</td></tr>'; }).join('') + '</tbody></table></div></details>';
+      }
+      h += '<p><button type="button" class="btn claro" data-act="svs-csv">Descargar para Excel (CSV)</button></p>';
+    }
+    h += '<p class="sub-txt">Datos de Yurest consultados el ' + esc(d.generado || '') + '.</p>';
+  }
+  return h + '</section>';
+}
+
 /* ============================== EVOLUCIÓN ============================== */
 function escala(max){
   if (max <= 0) return 1;
@@ -1541,7 +1629,7 @@ function vistaDatos(){
 function vistaVacia(){ return '<div class="vacio"><b>Todavía no hay ventas cargadas</b>Cuando se cargue el primer día, aparecerá aquí el resumen.</div>'; }
 function pintarPag(){
   var m = S.m, el = document.getElementById('pag'); if (!el) return;
-  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : S.tab === 'camareros' ? vistaCamareros() : S.tab === 'simulaciones' ? vistaSimulaciones() : vistaDatos());
+  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : S.tab === 'camareros' ? vistaCamareros() : S.tab === 'servicios' ? vistaServicios() : S.tab === 'simulaciones' ? vistaSimulaciones() : vistaDatos());
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function(b){ b.setAttribute('aria-selected', String(b.dataset.v === S.tab)); });
   var pl = document.querySelector('.grafico .plot'); if (pl) pl.scrollLeft = pl.scrollWidth;
   var cont = document.querySelector('.tabs-in'), tsel = document.querySelector('.tab[aria-selected="true"]');       // en pantallas estrechas, la pestaña activa queda a la vista
@@ -1551,7 +1639,7 @@ function armarMarco(){
   var m = S.m, ult = T.ultimaFecha(m);
   app.innerHTML = '<header class="cab"><div class="cab-in">' + MARCA + '' +
     '<div class="cab-txt"><b>Ventas · panel de socios</b><small>' + (ult ? 'Datos hasta el ' + T.fmtFechaLarga(ult) : 'Sin datos todavía') + ' · <button type="button" class="enlace" data-act="salir">Salir</button></small></div></div></header>' +
-    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['camareros', 'Camareros'], ['simulaciones', 'Simulaciones'], ['datos', 'Datos']].map(function(t){
+    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['camareros', 'Camareros'], ['servicios', 'Servicios'], ['simulaciones', 'Simulaciones'], ['datos', 'Datos']].map(function(t){
       return '<button type="button" role="tab" class="tab" data-act="tab" data-v="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></nav><main class="pag" id="pag"></main>';
   pintarPag();
 }
@@ -1612,9 +1700,11 @@ function actuar(act, v, k){
     case 'prod-cat': S.prod.cat = v; S.prod.sub = 'Todas'; break;
     case 'prod-sub': S.prod.sub = v; break;
     case 'prod-orden': S.prod.orden = v; break;
+    case 'svs-sacar': if (!S.svs) S.svs = svsIni(); svsSacar(); return;
+    case 'svs-csv': svsCsv(); return;
     case 'reintentar': iniciar(); return;
     case 'entrar': entrar(); return;
-    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.cam = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }; pintarAcceso(); return;
+    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.cam = null; S.svs = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }; pintarAcceso(); return;
     default: if (act.indexOf('sim-') === 0 && simAccion(act, v, k) !== false) break; return;
   }
   pintarPag(); window.scrollTo(0, antes);
@@ -1633,6 +1723,7 @@ document.addEventListener('click', function(ev){
 document.addEventListener('change', function(ev){
   var t = ev.target, f = t.dataset && t.dataset.f; if (!f) return;
   if (f.indexOf('sim-') === 0){ simCambio(t, f); return; }
+  if (f === 'svs-desde' || f === 'svs-hasta'){ if (!S.svs) S.svs = svsIni(); S.svs[f === 'svs-desde' ? 'desde' : 'hasta'] = t.value; S.svs.datos = null; S.svs.error = ''; var y0 = window.pageYOffset; pintarPag(); window.scrollTo(0, y0); return; }
   if (f === 'periodo'){ S.anchor = t.value; }
   else if (f === 'desde' || f === 'hasta'){
     var r = { desde: S.rango.desde, hasta: S.rango.hasta }; if (T.esIso(t.value)) r[f] = t.value; S.rango = r;
