@@ -1172,7 +1172,7 @@ async function cdrCargar(){
   v.cargando = true; v.error = ''; if (S.tab === 'cuadre') pintarPag();
   try {
     var ses = getSes(); var r = await API.accion('cuadreLeer', {}, ses ? ses.token : '');
-    v.dias = r && r.dias ? r.dias : {};
+    v.dias = r && r.dias ? r.dias : {}; v.cierres = r && r.cierres ? r.cierres : null; v.avisoCierres = r && r.avisoCierres ? r.avisoCierres : '';
     var ks = Object.keys(v.dias).sort(); if (!v.dia || !v.dias[v.dia]) v.dia = ks.length ? ks[ks.length - 1] : '';
   } catch (e){
     if (e && e.codigo === 'SESION'){ limpiarSes(); v.cargando = false; S.cargando = false; pintarAcceso(e.message); return; }
@@ -1193,6 +1193,23 @@ function cdrBloque(titulo, x){
   if (Math.abs(dif) >= 1) h += '<p class="sub-txt">Diferencia entre lo cobrado y las ventas: <b>' + (dif > 0 ? '+' : '−') + cdrE(Math.abs(dif)) + '</b> (propinas, descuentos de cobro, cuentas a crédito u otros ajustes de Ágora).</p>';
   return h + '</div>';
 }
+function cdrEsEfe(m){ return /efectivo|cash|metalico|metálico/i.test(m); }
+/* Conciliación del efectivo: lo que dicen los tickets de Ágora frente a lo que contó el equipo en la app de cierre de caja (contado + gastos + retiros). */
+function cdrConciliacion(dia, d){
+  var v = S.cdr, lista = v.cierres && v.cierres[dia] ? v.cierres[dia] : [], efeT = 0;
+  Object.keys(d.total.c).forEach(function(m){ if (cdrEsEfe(m)) efeT += d.total.c[m]; });
+  var h = '<div class="bloque" style="margin-top:14px"><h3 style="margin:0 0 4px;font-size:17px">Conciliación del efectivo con el cierre de caja</h3>';
+  if (v.avisoCierres) h += '<div class="aviso err" role="alert">' + esc(v.avisoCierres) + '</div>';
+  if (!lista.length) return h + '<p class="sub-txt">No hay ningún cierre de caja registrado en la app para esta jornada. Efectivo según los tickets de Ágora: <b>' + cdrE(efeT) + '</b>.</p></div>';
+  var rec = 0, con = 0, gas = 0, ret = 0; lista.forEach(function(x){ rec += x.rec; con += x.contado; gas += x.gastos; ret += x.retiros; });
+  var dif = rec - efeT;
+  h += '<div class="estadisticas"><div><small>Efectivo según tickets</small><b>' + cdrE(efeT) + '</b><em>Ágora</em></div><div><small>Efectivo según cierre de caja</small><b>' + cdrE(rec) + '</b><em>' + lista.length + ' ' + plural(lista.length, 'cierre', 'cierres') + ' en la app</em></div><div><small>Diferencia</small><b style="color:' + (dif === 0 ? '#1a7f37' : '#b42318') + '">' + (dif === 0 ? 'Cuadra' : (dif > 0 ? '+' : '−') + cdrE(Math.abs(dif))) + '</b><em>cierre − tickets</em></div></div>' +
+    '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Cierre</th><th>Turno</th><th>Guardado</th><th style="text-align:right">Contado</th><th style="text-align:right">Gastos</th><th style="text-align:right">Retiros</th><th style="text-align:right">Efectivo</th></tr></thead><tbody>' +
+    lista.map(function(x){ return '<tr><td>' + esc(x.emp || '—') + '</td><td>' + esc(x.turno || '—') + '</td><td>' + esc(x.hora) + '</td><td style="text-align:right">' + cdrE(x.contado) + '</td><td style="text-align:right">' + cdrE(x.gastos) + '</td><td style="text-align:right">' + cdrE(x.retiros) + '</td><td style="text-align:right">' + cdrE(x.rec) + '</td></tr>'; }).join('') +
+    '<tr><td><b>Total</b></td><td></td><td></td><td style="text-align:right"><b>' + cdrE(con) + '</b></td><td style="text-align:right"><b>' + cdrE(gas) + '</b></td><td style="text-align:right"><b>' + cdrE(ret) + '</b></td><td style="text-align:right"><b>' + cdrE(rec) + '</b></td></tr></tbody></table></div>' +
+    '<p class="sub-txt">Efectivo según cierre de caja = lo contado + los gastos pagados en efectivo + los retiros (el efectivo que ha entrado en caja). Un cierre guardado antes de las 12:00 cuenta para la jornada anterior.</p></div>';
+  return h;
+}
 function cdrCsvTexto(f, d){
   var q = function(x){ x = String(x); return /[";\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }, n = function(c){ return (c / 100).toFixed(2).replace('.', ','); }, L = [];
   L.push(['Cuadre de caja diaria', T.fmtFecha(f)].map(q).join(';')); L.push('');
@@ -1200,6 +1217,12 @@ function cdrCsvTexto(f, d){
     L.push([g[0], 'Ventas con IVA', n(g[1].v), g[1].t + ' tickets'].map(q).join(';'));
     Object.keys(g[1].c).sort().forEach(function(m){ L.push(['', m, n(g[1].c[m])].map(q).join(';')); }); L.push('');
   });
+  var lc = S.cdr && S.cdr.cierres && S.cdr.cierres[f] ? S.cdr.cierres[f] : [];
+  if (lc.length){
+    var efe = 0, rec = 0; Object.keys(d.total.c).forEach(function(m){ if (cdrEsEfe(m)) efe += d.total.c[m]; }); lc.forEach(function(x){ rec += x.rec; });
+    L.push(['Conciliacion del efectivo', 'Tickets Agora', 'Cierre de caja', 'Diferencia'].map(q).join(';')); L.push(['Efectivo', n(efe), n(rec), n(rec - efe)].map(q).join(';'));
+    lc.forEach(function(x){ L.push(['Cierre', x.emp, x.turno, n(x.contado), n(x.gastos), n(x.retiros), n(x.rec)].map(q).join(';')); });
+  }
   return '﻿' + L.join('\r\n');
 }
 function cdrCsv(){
@@ -1222,6 +1245,7 @@ function vistaCuadre(){
   if (!d) return h + '<div class="vacio"><b>No hay cuadre guardado para ese día</b>Hay cuadres del ' + T.fmtFecha(ks[0]) + ' al ' + T.fmtFecha(ks[ks.length - 1]) + '. Si ese día se trabajó, puede que no se haya cargado todavía.</div></section>';
   h += '<h3 style="margin:16px 0 2px;font-size:17px">' + esc(T.fmtFecha(v.dia)) + '</h3>';
   h += cdrBloque('Ventas total', d.total) + cdrBloque('Ventas de puerta', d.puerta) + cdrBloque('Ventas de sala y barra', d.sb);
+  h += cdrConciliacion(v.dia, d);
   h += '<p><button type="button" class="btn claro" data-act="cdr-csv">Descargar para Excel (CSV)</button></p></section>';
   return h;
 }
