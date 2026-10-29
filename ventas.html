@@ -1165,6 +1165,66 @@ function svsCsv(){
   a.href = URL.createObjectURL(blob); a.download = 'servicios_horas_nocturnas_' + d.desde + '_a_' + d.hasta + '.csv';
   document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
+/* ===== Cuadre de caja diaria: ventas y cobros por forma de pago (total · puerta · sala y barra) ===== */
+function cdrIni(){ return { dias: null, dia: '', cargando: false, error: '' }; }
+async function cdrCargar(){
+  var v = S.cdr; if (!v || v.cargando) return;
+  v.cargando = true; v.error = ''; if (S.tab === 'cuadre') pintarPag();
+  try {
+    var ses = getSes(); var r = await API.accion('cuadreLeer', {}, ses ? ses.token : '');
+    v.dias = r && r.dias ? r.dias : {};
+    var ks = Object.keys(v.dias).sort(); if (!v.dia || !v.dias[v.dia]) v.dia = ks.length ? ks[ks.length - 1] : '';
+  } catch (e){
+    if (e && e.codigo === 'SESION'){ limpiarSes(); v.cargando = false; S.cargando = false; pintarAcceso(e.message); return; }
+    v.error = e && e.message ? e.message : String(e);
+  }
+  v.cargando = false; if (S.tab === 'cuadre') pintarPag();
+}
+function cdrE(c){ return T.fmtEur(c); }
+function cdrBloque(titulo, x){
+  var ms = Object.keys(x.c).sort(function(a, b){ return x.c[b] - x.c[a]; }), cobrado = 0; ms.forEach(function(m){ cobrado += x.c[m]; });
+  var dif = cobrado - x.v;
+  var h = '<div class="bloque" style="margin-top:14px"><h3 style="margin:0 0 4px;font-size:17px">' + esc(titulo) + '</h3>' +
+    '<p class="sub-txt" style="margin:0 0 6px">Ventas con IVA: <b>' + cdrE(x.v) + '</b> · ' + x.t + ' ' + plural(x.t, 'ticket', 'tickets') + '</p>';
+  if (!ms.length) return h + '<p class="sub-txt">Sin cobros este día.</p></div>';
+  h += '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Forma de pago</th><th style="text-align:right">Importe</th><th style="text-align:right">% </th></tr></thead><tbody>' +
+    ms.map(function(m){ return '<tr><td>' + esc(m) + '</td><td style="text-align:right">' + cdrE(x.c[m]) + '</td><td style="text-align:right">' + (cobrado ? (x.c[m] / cobrado * 100).toFixed(1).replace('.', ',') : '0') + ' %</td></tr>'; }).join('') +
+    '<tr><td><b>Total cobrado</b></td><td style="text-align:right"><b>' + cdrE(cobrado) + '</b></td><td></td></tr></tbody></table></div>';
+  if (Math.abs(dif) >= 1) h += '<p class="sub-txt">Diferencia entre lo cobrado y las ventas: <b>' + (dif > 0 ? '+' : '−') + cdrE(Math.abs(dif)) + '</b> (propinas, descuentos de cobro, cuentas a crédito u otros ajustes de Ágora).</p>';
+  return h + '</div>';
+}
+function cdrCsvTexto(f, d){
+  var q = function(x){ x = String(x); return /[";\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }, n = function(c){ return (c / 100).toFixed(2).replace('.', ','); }, L = [];
+  L.push(['Cuadre de caja diaria', T.fmtFecha(f)].map(q).join(';')); L.push('');
+  [['Total', d.total], ['Puerta', d.puerta], ['Sala y barra', d.sb]].forEach(function(g){
+    L.push([g[0], 'Ventas con IVA', n(g[1].v), g[1].t + ' tickets'].map(q).join(';'));
+    Object.keys(g[1].c).sort().forEach(function(m){ L.push(['', m, n(g[1].c[m])].map(q).join(';')); }); L.push('');
+  });
+  return '﻿' + L.join('\r\n');
+}
+function cdrCsv(){
+  var v = S.cdr, d = v && v.dias && v.dias[v.dia]; if (!d) return;
+  var blob = new Blob([cdrCsvTexto(v.dia, d)], { type: 'text/csv;charset=utf-8' }), a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'cuadre_caja_' + v.dia + '.csv';
+  document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function vistaCuadre(){
+  if (!S.cdr){ S.cdr = cdrIni(); setTimeout(cdrCargar, 0); }
+  var v = S.cdr, ks = v.dias ? Object.keys(v.dias).sort() : [], d = v.dias && v.dias[v.dia];
+  var h = '<section class="bloque"><h2>Cuadre de caja diaria</h2><p class="sub-txt">Ventas y cobros de una jornada, separados por forma de pago (efectivo, tarjeta, tarjeta Ágora y cualquier otra que se haya usado), en tres bloques: <b>total</b>, <b>puerta</b> y <b>sala y barra juntas</b>. Importes con IVA; los cobros salen de los tickets de Ágora.</p>';
+  if (v.cargando && !v.dias) return h + '<div class="aviso info" role="status">Cargando el cuadre de caja…</div></section>';
+  if (v.error) h += '<div class="aviso err" role="alert">' + esc(v.error) + '</div>';
+  if (!v.dias) return h + '<p><button type="button" class="btn" data-act="cdr-recargar">Reintentar</button></p></section>';
+  if (!ks.length) return h + '<div class="aviso info">Todavía no hay cuadres guardados. Hay que ejecutar <b>cuadreRellenar</b> en el Apps Script.</div></section>';
+  var i = ks.indexOf(v.dia);
+  h += '<div class="periodo"><div class="rango-caja"><div class="rangos"><div><label for="cdr-d">Jornada</label><input class="campo" type="date" id="cdr-d" data-f="cdr-dia" min="' + ks[0] + '" max="' + ks[ks.length - 1] + '" value="' + v.dia + '"></div></div>' +
+    '<div class="fila"><button type="button" class="btn claro" data-act="cdr-ant"' + (i <= 0 ? ' disabled' : '') + '>◀ Día anterior</button> <button type="button" class="btn claro" data-act="cdr-sig"' + (i >= ks.length - 1 ? ' disabled' : '') + '>Día siguiente ▶</button></div></div></div>';
+  if (!d) return h + '<div class="vacio"><b>No hay cuadre guardado para ese día</b>Hay cuadres del ' + T.fmtFecha(ks[0]) + ' al ' + T.fmtFecha(ks[ks.length - 1]) + '. Si ese día se trabajó, puede que no se haya cargado todavía.</div></section>';
+  h += '<h3 style="margin:16px 0 2px;font-size:17px">' + esc(T.fmtFecha(v.dia)) + '</h3>';
+  h += cdrBloque('Ventas total', d.total) + cdrBloque('Ventas de puerta', d.puerta) + cdrBloque('Ventas de sala y barra', d.sb);
+  h += '<p><button type="button" class="btn claro" data-act="cdr-csv">Descargar para Excel (CSV)</button></p></section>';
+  return h;
+}
 function vistaServicios(){
   if (!S.svs) S.svs = svsIni();
   var v = S.svs, d = v.datos;
@@ -1209,8 +1269,11 @@ function vistaServicios(){
 
 /* ============================== GASTOS (compras, gastos generales y de personal del mes · Yurest) ============================== */
 /* Las ventas son las de Ágora (las mismas del resto del panel). Compras y gastos los pide el servicio a Yurest (yurest_gastos.gs). El mes es obligatorio. */
+/* Yurest tiene datos desde septiembre de 2026; los fiables empiezan en noviembre de 2026 (decisión de Jorge, 26/10/2026). */
+var GST_DESDE = '2026-09', GST_FIABLE = '2026-11';
+function gstMesAnt(mes){ var p = mes.split('-'), y = +p[0], m = +p[1] - 1; if (m === 0){ m = 12; y--; } return y + '-' + ('0' + m).slice(-2); }
 function gstIni(){ return { mes: '', datos: null, cargando: false, error: '' }; }
-function gstMeses(){ var h = svsHoy().split('-'), y = +h[0], m = +h[1], out = []; for (var i = 0; i < 24; i++){ out.push(y + '-' + ('0' + m).slice(-2)); m--; if (m === 0){ m = 12; y--; } } return out; }
+function gstMeses(){ var h = svsHoy().split('-'), y = +h[0], m = +h[1], out = []; for (var i = 0; i < 24; i++){ var k = y + '-' + ('0' + m).slice(-2); if (k >= GST_DESDE) out.push(k); m--; if (m === 0){ m = 12; y--; } } return out; }
 function gstEur(x){ return T.fmtEur(Math.round((Number(x) || 0) * 100)); }
 function gstVentasAgora(mes){
   var m = S.mV || S.m; if (!m) return null;
@@ -1231,8 +1294,8 @@ async function gstSacar(){
 }
 function gstConceptos(d, vc){
   return [['Compras', d.compras], ['Gastos generales', d.generales], ['Gastos de personal', d.personal]].map(function(x){
-    var c = Math.round(x[1].amount * 100), lc = Math.round(x[1].last_amount * 100);
-    return { n: x[0], c: c, pct: vc > 0 ? c / vc * 100 : null, lc: lc, dv: lc > 0 ? T.pctVar(c, lc) : null };
+    var c = Math.round(x[1].amount * 100), lc = Math.round(x[1].last_amount * 100), compFiable = gstMesAnt(d.mes) >= GST_FIABLE;       // el mes anterior solo se compara si sus datos son fiables
+    return { n: x[0], c: c, pct: vc > 0 ? c / vc * 100 : null, lc: compFiable ? lc : null, dv: compFiable && lc > 0 ? T.pctVar(c, lc) : null };
   });
 }
 function gstCsvTexto(d, vA){
@@ -1241,7 +1304,7 @@ function gstCsvTexto(d, vA){
   L.push(['Compras y gastos del mes (Yurest) · ventas de Ágora', T.nombreMes(d.mes + '-01')].map(q).join(';')); L.push('');
   L.push(['Concepto', 'Importe (€)', '% sobre ventas Ágora', 'Mes anterior (€)', 'Variación %'].join(';'));
   L.push(['Ventas (Ágora, con IVA)', e(vc), '', '', ''].map(q).join(';'));
-  cs.forEach(function(x){ L.push([x.n, e(x.c), x.pct === null ? '' : x.pct.toFixed(1).replace('.', ','), e(x.lc), x.dv === null ? '' : x.dv.toFixed(1).replace('.', ',')].map(q).join(';')); });
+  cs.forEach(function(x){ L.push([x.n, e(x.c), x.pct === null ? '' : x.pct.toFixed(1).replace('.', ','), x.lc === null ? '' : e(x.lc), x.dv === null ? '' : x.dv.toFixed(1).replace('.', ',')].map(q).join(';')); });
   L.push(['Resultado (ventas Ágora − compras − gastos)', e(vc - tot), vc > 0 ? ((vc - tot) / vc * 100).toFixed(1).replace('.', ',') : '', '', ''].map(q).join(';'));
   L.push(['Ventas según Yurest (referencia)', e(Math.round(d.ventasYurest.amount * 100)), '', '', ''].map(q).join(';'));
   [['Desglose de compras', 'compras'], ['Desglose de gastos generales (por familia)', 'generales'], ['Desglose de gastos de personal (por departamento)', 'personal']].forEach(function(b){
@@ -1265,7 +1328,7 @@ function vistaGastos(){
   if (!S.gst) S.gst = gstIni();
   var v = S.gst, d = v.datos, h = '<section class="bloque"><h2>Gastos · compras, gastos generales y de personal</h2><p class="sub-txt">Informe mensual. Las <b>ventas</b> son las de Ágora (con IVA, igual que el resto del panel). Las <b>compras</b> y los <b>gastos</b> son los que Yurest tiene registrados ese mes.</p>' +
     '<div class="periodo"><div class="rango-caja"><div><label for="gst-m">Mes (obligatorio)</label><select class="sel" id="gst-m" data-f="gst-mes"><option value=""' + (v.mes ? '' : ' selected') + '>Elige el mes…</option>' +
-    gstMeses().map(function(k){ return '<option value="' + k + '"' + (k === v.mes ? ' selected' : '') + '>' + esc(T.nombreMes(k + '-01')) + '</option>'; }).join('') + '</select></div>' +
+    gstMeses().map(function(k){ return '<option value="' + k + '"' + (k === v.mes ? ' selected' : '') + '>' + esc(T.nombreMes(k + '-01')) + (k < GST_FIABLE ? ' · datos no fiables' : '') + '</option>'; }).join('') + '</select></div>' +
     '<div class="fila"><button type="button" class="btn" data-act="gst-sacar"' + (v.cargando || !v.mes ? ' disabled' : '') + '>' + (v.cargando ? 'Consultando Yurest…' : 'Sacar informe') + '</button></div></div></div>';
   if (v.error) h += '<div class="aviso err" role="alert">' + esc(v.error) + '</div>';
   else if (!v.mes && !d) h += '<p class="sub-txt">Elige el mes para sacar el informe.</p>';
@@ -1273,6 +1336,8 @@ function vistaGastos(){
   if (d){
     var vA = gstVentasAgora(d.mes), vc = vA ? vA.c : 0, cs = gstConceptos(d, vc), tot = cs.reduce(function(s2, x){ return s2 + x.c; }, 0), res = vc - tot;
     h += '<h3 style="margin:16px 0 2px;font-size:17px">' + esc(T.nombreMes(d.mes + '-01')) + (d.enCurso ? ' (mes en curso)' : '') + '</h3>';
+    if (d.mes < GST_FIABLE) h += '<div class="aviso warn"><b>Datos orientativos.</b> Yurest tiene datos desde septiembre de 2026, pero los fiables empiezan en noviembre de 2026. Algunos gastos de este mes pueden estar sin cargar o mal clasificados.</div>';
+    else if (gstMesAnt(d.mes) < GST_FIABLE) h += '<div class="aviso info">La comparación con el mes anterior no se muestra porque los datos de Yurest anteriores a noviembre de 2026 no son fiables.</div>';
     if (!vA || !vA.dias) h += '<div class="aviso warn">No hay ventas de Ágora cargadas en ese mes: los porcentajes y el resultado no se pueden calcular.</div>';
     else if (vA.faltan > 0 || vA.enCurso) h += '<div class="aviso warn">Las ventas de Ágora de este mes son parciales (' + vA.dias + ' ' + plural(vA.dias, 'día cargado', 'días cargados') + (vA.faltan > 0 ? ', faltan ' + vA.faltan : '') + (vA.enCurso ? ', mes en curso' : '') + '), mientras que Yurest puede tener el mes entero. Compara con cuidado.</div>';
     (d.avisos || []).forEach(function(a){ h += '<div class="aviso warn">' + esc(a) + '</div>'; });
@@ -1283,7 +1348,7 @@ function vistaGastos(){
       '<div><small>Gastos de personal</small><b>' + T.fmtEur(cs[2].c) + '</b><em>' + (cs[2].pct === null ? '' : T.fmtPct(cs[2].pct) + ' de las ventas') + '</em></div></div>';
     h += '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Concepto</th><th>Importe</th><th>% ventas</th><th>Mes anterior</th><th>Variación</th></tr></thead><tbody>' +
       '<tr><td><b>Ventas (Ágora)</b></td><td><b>' + T.fmtEur(vc) + '</b></td><td></td><td></td><td></td></tr>' +
-      cs.map(function(x){ return '<tr><td>' + x.n + '</td><td>' + T.fmtEur(x.c) + '</td><td>' + (x.pct === null ? '—' : T.fmtPct(x.pct)) + '</td><td>' + T.fmtEur(x.lc) + '</td><td>' + (x.dv === null ? '—' : (x.dv > 0 ? '+' : '') + T.fmtPct(x.dv)) + '</td></tr>'; }).join('') +
+      cs.map(function(x){ return '<tr><td>' + x.n + '</td><td>' + T.fmtEur(x.c) + '</td><td>' + (x.pct === null ? '—' : T.fmtPct(x.pct)) + '</td><td>' + (x.lc === null ? '—' : T.fmtEur(x.lc)) + '</td><td>' + (x.dv === null ? '—' : (x.dv > 0 ? '+' : '') + T.fmtPct(x.dv)) + '</td></tr>'; }).join('') +
       '<tr><td><b>Resultado</b></td><td><b>' + T.fmtEur(res) + '</b></td><td>' + (vc > 0 ? '<b>' + T.fmtPct(res / vc * 100) + '</b>' : '—') + '</td><td></td><td></td></tr></tbody></table></div>' +
       '<p class="sub-txt">Resultado = ventas de Ágora − compras − gastos generales − gastos de personal. «Mes anterior» y su variación vienen de Yurest. Ventas según Yurest ese mes: ' + gstEur(d.ventasYurest.amount) + '. Si ventas y gastos no llevan el mismo tratamiento del IVA, el resultado no es comparable: revisa que cuadran con Yurest antes de fiarte.</p>';
     h += gstBloque('Compras por familia', d.detalle.compras) + gstBloque('Gastos generales por familia', d.detalle.generales) + gstBloque('Gastos de personal por departamento', d.detalle.personal);
@@ -1715,7 +1780,7 @@ function vistaDatos(){
 function vistaVacia(){ return '<div class="vacio"><b>Todavía no hay ventas cargadas</b>Cuando se cargue el primer día, aparecerá aquí el resumen.</div>'; }
 function pintarPag(){
   var m = S.m, el = document.getElementById('pag'); if (!el) return;
-  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : S.tab === 'camareros' ? vistaCamareros() : S.tab === 'servicios' ? vistaServicios() : S.tab === 'gastos' ? vistaGastos() : S.tab === 'simulaciones' ? vistaSimulaciones() : vistaDatos());
+  el.innerHTML = !m.fechas.length ? vistaVacia() : (S.tab === 'resumen' ? vistaResumen() : S.tab === 'evolucion' ? vistaEvolucion() : S.tab === 'productos' ? vistaProductos() : S.tab === 'entradas' ? vistaEntradas() : S.tab === 'servicio' ? vistaServicio() : S.tab === 'camareros' ? vistaCamareros() : S.tab === 'cuadre' ? vistaCuadre() : S.tab === 'servicios' ? vistaServicios() : S.tab === 'gastos' ? vistaGastos() : S.tab === 'simulaciones' ? vistaSimulaciones() : vistaDatos());
   Array.prototype.forEach.call(document.querySelectorAll('.tab'), function(b){ b.setAttribute('aria-selected', String(b.dataset.v === S.tab)); });
   var pl = document.querySelector('.grafico .plot'); if (pl) pl.scrollLeft = pl.scrollWidth;
   var cont = document.querySelector('.tabs-in'), tsel = document.querySelector('.tab[aria-selected="true"]');       // en pantallas estrechas, la pestaña activa queda a la vista
@@ -1725,7 +1790,7 @@ function armarMarco(){
   var m = S.m, ult = T.ultimaFecha(m);
   app.innerHTML = '<header class="cab"><div class="cab-in">' + MARCA + '' +
     '<div class="cab-txt"><b>Ventas · panel de socios</b><small>' + (ult ? 'Datos hasta el ' + T.fmtFechaLarga(ult) : 'Sin datos todavía') + ' · <button type="button" class="enlace" data-act="salir">Salir</button></small></div></div></header>' +
-    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['camareros', 'Camareros'], ['servicios', 'Servicios'], ['gastos', 'Gastos'], ['simulaciones', 'Simulaciones'], ['datos', 'Datos']].map(function(t){
+    '<nav class="tabs" aria-label="Secciones"><div class="tabs-in" role="tablist">' + [['resumen', 'Resumen'], ['evolucion', 'Evolución'], ['productos', 'Productos'], ['entradas', 'Entradas'], ['servicio', 'Servicio'], ['camareros', 'Camareros'], ['cuadre', 'Cuadre de caja diaria'], ['servicios', 'Servicios'], ['gastos', 'Gastos'], ['simulaciones', 'Simulaciones'], ['datos', 'Datos']].map(function(t){
       return '<button type="button" role="tab" class="tab" data-act="tab" data-v="' + t[0] + '" aria-selected="' + (S.tab === t[0]) + '">' + t[1] + '</button>'; }).join('') + '</div></nav><main class="pag" id="pag"></main>';
   pintarPag();
 }
@@ -1790,9 +1855,12 @@ function actuar(act, v, k){
     case 'gst-csv': gstCsv(); return;
     case 'svs-sacar': if (!S.svs) S.svs = svsIni(); svsSacar(); return;
     case 'svs-csv': svsCsv(); return;
+    case 'cdr-csv': cdrCsv(); return;
+    case 'cdr-recargar': if (S.cdr){ S.cdr.error = ''; } cdrCargar(); return;
+    case 'cdr-ant': case 'cdr-sig': if (S.cdr && S.cdr.dias){ var ks2 = Object.keys(S.cdr.dias).sort(), j = ks2.indexOf(S.cdr.dia) + (act === 'cdr-sig' ? 1 : -1); if (j >= 0 && j < ks2.length){ S.cdr.dia = ks2[j]; pintarPag(); } } return;
     case 'reintentar': iniciar(); return;
     case 'entrar': entrar(); return;
-    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.cam = null; S.svs = null; S.gst = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }; pintarAcceso(); return;
+    case 'salir': limpiarSes(); S.m = null; S.mV = null; S.mS = null; S.cam = null; S.svs = null; S.gst = null; S.cdr = null; S.tab = 'resumen'; S.sim = { vent: 90, q: '', items: [], perd: 10, hist: {}, dias: [true, true, true, true, true, true, true], ayuda: true }; pintarAcceso(); return;
     default: if (act.indexOf('sim-') === 0 && simAccion(act, v, k) !== false) break; return;
   }
   pintarPag(); window.scrollTo(0, antes);
@@ -1812,6 +1880,7 @@ document.addEventListener('change', function(ev){
   var t = ev.target, f = t.dataset && t.dataset.f; if (!f) return;
   if (f.indexOf('sim-') === 0){ simCambio(t, f); return; }
   if (f === 'gst-mes'){ if (!S.gst) S.gst = gstIni(); S.gst.mes = t.value; S.gst.datos = null; S.gst.error = ''; var y1 = window.pageYOffset; pintarPag(); window.scrollTo(0, y1); return; }
+  if (f === 'cdr-dia'){ if (S.cdr){ S.cdr.dia = t.value; var y1 = window.pageYOffset; pintarPag(); window.scrollTo(0, y1); } return; }
   if (f === 'svs-desde' || f === 'svs-hasta'){ if (!S.svs) S.svs = svsIni(); S.svs[f === 'svs-desde' ? 'desde' : 'hasta'] = t.value; S.svs.datos = null; S.svs.error = ''; var y0 = window.pageYOffset; pintarPag(); window.scrollTo(0, y0); return; }
   if (f === 'periodo'){ S.anchor = t.value; }
   else if (f === 'desde' || f === 'hasta'){
