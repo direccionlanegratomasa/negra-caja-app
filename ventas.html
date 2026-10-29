@@ -1195,6 +1195,7 @@ function cdrBloque(titulo, x){
 }
 function cdrEsEfe(m){ return /efectivo|cash|metalico|metálico/i.test(m); }
 /* Conciliación del efectivo: lo que dicen los tickets de Ágora frente a lo que contó el equipo en la app de cierre de caja (contado + gastos + retiros). */
+function cdrTarTickets(x){ var t = 0; Object.keys(x.c).forEach(function(m){ if (/^\s*tarjeta\s*$/i.test(m)) t += x.c[m]; }); return t; }   /* solo la forma de pago «Tarjeta»; «Tarjeta Ágora» no cuenta */
 function cdrEfeTickets(x){ var t = 0; Object.keys(x.c).forEach(function(m){ if (cdrEsEfe(m)) t += x.c[m]; }); return t; }
 function cdrConciliacion(dia, d){
   var v = S.cdr, lista = v.cierres && v.cierres[dia] ? v.cierres[dia] : [];
@@ -1209,11 +1210,20 @@ function cdrConciliacion(dia, d){
   });
   if (!lista.length) return h + '<p class="sub-txt">No hay ningún cierre de caja registrado en la app para esta jornada. Efectivo según los tickets de Ágora: <b>' + cdrE(tT) + '</b>.</p></div>';
   filas += '<tr><td><b>Total</b></td><td style="text-align:right"><b>' + cdrE(tT) + '</b></td><td style="text-align:right"><b>' + cdrE(tC) + '</b></td><td style="text-align:right">' + dif(tC - tT) + '</td></tr>';
+  var tarH = '', tarF = '', tTT = 0, tCT = 0, hayTar = false;
+  gr.forEach(function(g){
+    var l = lista.filter(function(x){ return x.g === g[1]; }), ct = 0, hay = false; l.forEach(function(x){ if (x.tar !== undefined){ ct += x.tar; hay = true; } });
+    var et = cdrTarTickets(g[2]); tTT += et; if (hay){ tCT += ct; hayTar = true; }
+    tarF += '<tr><td>' + g[0] + '</td><td style="text-align:right">' + cdrE(et) + '</td><td style="text-align:right">' + (hay ? cdrE(ct) : '<span class="sub-txt">sin dato</span>') + '</td><td style="text-align:right">' + (hay ? dif(ct - et) : '—') + '</td></tr>';
+  });
+  if (hayTar) tarH = '<div style="overflow-x:auto;margin-top:8px"><table class="sim-tabla"><thead><tr><th>Tarjeta</th><th style="text-align:right">Tickets Ágora</th><th style="text-align:right">Cierre de datáfono</th><th style="text-align:right">Diferencia</th></tr></thead><tbody>' + tarF +
+    '<tr><td><b>Total</b></td><td style="text-align:right"><b>' + cdrE(tTT) + '</b></td><td style="text-align:right"><b>' + cdrE(tCT) + '</b></td><td style="text-align:right">' + dif(tCT - tTT) + '</td></tr></tbody></table></div>' +
+    '<p class="sub-txt">Tarjeta de los tickets = solo la forma de pago «Tarjeta» (no incluye «Tarjeta Ágora»). El cierre de datáfono es el «total cobrado en tarjeta» que escribe quien hace el cierre.</p>';
   var con = 0, gas = 0, ret = 0; lista.forEach(function(x){ con += x.contado; gas += x.gastos; ret += x.retiros; });
-  h += '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Dónde se recaudó</th><th style="text-align:right">Efectivo tickets</th><th style="text-align:right">Efectivo cierre de caja</th><th style="text-align:right">Diferencia</th></tr></thead><tbody>' + filas + '</tbody></table></div>' +
-    '<div style="overflow-x:auto;margin-top:8px"><table class="sim-tabla"><thead><tr><th>Cierre</th><th>Turno</th><th>Guardado</th><th>Recaudado en</th><th style="text-align:right">Contado</th><th style="text-align:right">Gastos</th><th style="text-align:right">Retiros</th><th style="text-align:right">Efectivo</th></tr></thead><tbody>' +
-    lista.map(function(x){ return '<tr><td>' + esc(x.emp || '—') + '</td><td>' + esc(x.turno || '—') + '</td><td>' + esc(x.hora) + '</td><td>' + (x.g === 'puerta' ? 'Puerta' : 'Sala y barra') + '</td><td style="text-align:right">' + cdrE(x.contado) + '</td><td style="text-align:right">' + cdrE(x.gastos) + '</td><td style="text-align:right">' + cdrE(x.retiros) + '</td><td style="text-align:right">' + cdrE(x.rec) + '</td></tr>'; }).join('') +
-    '<tr><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>' + cdrE(con) + '</b></td><td style="text-align:right"><b>' + cdrE(gas) + '</b></td><td style="text-align:right"><b>' + cdrE(ret) + '</b></td><td style="text-align:right"><b>' + cdrE(tC) + '</b></td></tr></tbody></table></div>' +
+  h += '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Dónde se recaudó</th><th style="text-align:right">Efectivo tickets</th><th style="text-align:right">Efectivo cierre de caja</th><th style="text-align:right">Diferencia</th></tr></thead><tbody>' + filas + '</tbody></table></div>' + tarH +
+    '<div style="overflow-x:auto;margin-top:8px"><table class="sim-tabla"><thead><tr><th>Cierre</th><th>Turno</th><th>Guardado</th><th>Recaudado en</th><th style="text-align:right">Contado</th><th style="text-align:right">Gastos</th><th style="text-align:right">Retiros</th><th style="text-align:right">Efectivo</th><th style="text-align:right">Tarjeta</th></tr></thead><tbody>' +
+    lista.map(function(x){ return '<tr><td>' + esc(x.emp || '—') + '</td><td>' + esc(x.turno || '—') + '</td><td>' + esc(x.hora) + '</td><td>' + (x.g === 'puerta' ? 'Puerta' : 'Sala y barra') + '</td><td style="text-align:right">' + cdrE(x.contado) + '</td><td style="text-align:right">' + cdrE(x.gastos) + '</td><td style="text-align:right">' + cdrE(x.retiros) + '</td><td style="text-align:right">' + cdrE(x.rec) + '</td><td style="text-align:right">' + (x.tar !== undefined ? cdrE(x.tar) : '—') + '</td></tr>'; }).join('') +
+    '<tr><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>' + cdrE(con) + '</b></td><td style="text-align:right"><b>' + cdrE(gas) + '</b></td><td style="text-align:right"><b>' + cdrE(ret) + '</b></td><td style="text-align:right"><b>' + cdrE(tC) + '</b></td><td style="text-align:right"><b>' + (hayTar ? cdrE(tCT) : '—') + '</b></td></tr></tbody></table></div>' +
     '<p class="sub-txt">Efectivo según cierre de caja = lo contado + los gastos pagados en efectivo + los retiros. Los cierres de <b>Omar</b> y <b>Ricardo</b> se registran en <b>Puerta</b>; los de cualquier otra persona, en <b>Sala y barra</b>. Un cierre guardado antes de las 12:00 cuenta para la jornada anterior.</p></div>';
   return h;
 }
@@ -1228,7 +1238,9 @@ function cdrCsvTexto(f, d){
   if (lc.length){
     L.push(['Conciliacion del efectivo', 'Tickets Agora', 'Cierre de caja', 'Diferencia'].map(q).join(';'));
     [['Puerta', 'puerta', d.puerta], ['Sala y barra', 'sb', d.sb]].forEach(function(g){ var r2 = 0; lc.forEach(function(x){ if (x.g === g[1]) r2 += x.rec; }); var e2 = cdrEfeTickets(g[2]); L.push([g[0], n(e2), n(r2), n(r2 - e2)].map(q).join(';')); });
-    lc.forEach(function(x){ L.push(['Cierre', x.emp, x.turno, x.g === 'puerta' ? 'Puerta' : 'Sala y barra', n(x.contado), n(x.gastos), n(x.retiros), n(x.rec)].map(q).join(';')); });
+    L.push(['Conciliacion de tarjeta', 'Tickets Agora', 'Cierre de datafono', 'Diferencia'].map(q).join(';'));
+    [['Puerta', 'puerta', d.puerta], ['Sala y barra', 'sb', d.sb]].forEach(function(g){ var r3 = 0, hay = false; lc.forEach(function(x){ if (x.g === g[1] && x.tar !== undefined){ r3 += x.tar; hay = true; } }); var e3 = cdrTarTickets(g[2]); L.push([g[0], n(e3), hay ? n(r3) : 'sin dato', hay ? n(r3 - e3) : ''].map(q).join(';')); });
+    lc.forEach(function(x){ L.push(['Cierre', x.emp, x.turno, x.g === 'puerta' ? 'Puerta' : 'Sala y barra', n(x.contado), n(x.gastos), n(x.retiros), n(x.rec), x.tar !== undefined ? n(x.tar) : ''].map(q).join(';')); });
   }
   return '﻿' + L.join('\r\n');
 }
