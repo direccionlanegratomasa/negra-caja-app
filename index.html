@@ -474,6 +474,7 @@ function emptyForm(){
     gastos: [],
     denom: {},
     observaciones: '',
+    totalTarjeta: '',
     fotoDataUrl: ''
   };
 }
@@ -811,14 +812,25 @@ function renderNuevo(app){
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">7</span>Observaciones</div>
+      <div class="card-head"><span class="card-num">7</span>Cierre de datáfono</div>
+      <div class="card-body">
+        <div class="hint" style="margin-bottom:10px">Haz el cierre del datáfono y escribe aquí el importe total que aparece en el ticket de cierre. Si no se ha cobrado nada con tarjeta, escribe 0.</div>
+        <div class="field" style="margin-bottom:0">
+          <label>Total cobrado en tarjeta</label>
+          <input type="number" inputmode="decimal" id="f-tarjeta" placeholder="0.00" value="${f.totalTarjeta}" onfocus="this.select()">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="card-num">8</span>Observaciones</div>
       <div class="card-body">
         <textarea id="f-obs" placeholder="Incidencias del día: errores de TPV, billetes falsos, clientes, etc.">${esc(f.observaciones)}</textarea>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><span class="card-num">8</span>Seguridad</div>
+      <div class="card-head"><span class="card-num">9</span>Seguridad</div>
       <div class="card-body">
         <div class="field" style="margin-bottom:0">
           <label>Foto de todo el efectivo contado (opcional, antes de ir a la caja fuerte)</label>
@@ -853,6 +865,7 @@ function renderNuevo(app){
   byId('f-turno').onchange = e=>{ f.turno = e.target.value; };
   byId('f-empleado').onchange = e=>{ f.empleado = e.target.value; };
   byId('f-fondo').oninput = e=>{ f.fondoInicial = e.target.value; };
+  byId('f-tarjeta').oninput = e=>{ f.totalTarjeta = e.target.value; };
   byId('f-obs').oninput = e=>{ f.observaciones = e.target.value; };
   byId('btn-foto').onclick = ()=> byId('f-foto').click();
   byId('f-foto').onchange = handlePhoto;
@@ -1042,6 +1055,7 @@ async function handleGuardar(){
   if(state.saving) return;
   const f = state.form;
   if(!f.empleado){ showNotice('Falta información', 'Selecciona el empleado que realiza el cierre.'); return; }
+  if(f.totalTarjeta === '' || f.totalTarjeta === null || f.totalTarjeta === undefined || isNaN(Number(String(f.totalTarjeta).replace(',','.')))){ showNotice('Falta información', 'Escribe el total cobrado en tarjeta que indica el cierre del datáfono (si no hubo cobros con tarjeta, escribe 0).'); const t = byId('f-tarjeta'); if(t) t.focus(); return; }
   const c = calc(f);
   await guardarCierreDefinitivo(f, c);
 }
@@ -1053,6 +1067,7 @@ async function guardarCierreDefinitivo(f, c){
   if(btn){ btn.disabled = true; btn.textContent = 'Guardando...'; }
   const uniqueId = f.fecha + '_' + slug(f.empleado) + '_' + Date.now();
   const entry = { ...f, ...c, savedAt: Date.now() };
+  entry.totalTarjeta = Math.round((Number(String(f.totalTarjeta).replace(',','.')) || 0) * 100) / 100;
 
   // Las fotos se guardan en archivos propios (no dentro del registro principal)
   // para no toparse con el límite de tamaño por archivo cuando hay varias fotos.
@@ -1149,6 +1164,7 @@ function renderHistorial(app){
         <div class="hist-nums">
           <span>Efectivo ${money(totalEfectivoOf(e))}</span>
           <span>Gastos ${money(e.totalGastos)}</span>
+          ${e.totalTarjeta !== undefined ? `<span>Tarjeta ${money(e.totalTarjeta)}</span>` : ''}
         </div>
       </div>
     `).join('');
@@ -1388,6 +1404,7 @@ function renderModal(app){
           <div class="sum-line"><span>Total efectivo</span><span>${money(totalEfectivoOf(e))}</span></div>
           <div class="sum-line"><span>Gastos</span><span>${money(e.totalGastos)}</span></div>
           <div class="sum-line"><span>Retiros</span><span>${money(e.totalRetiros)}</span></div>
+          ${e.totalTarjeta !== undefined ? `<div class="sum-line"><span>Total cobrado en tarjeta (datáfono)</span><span>${money(e.totalTarjeta)}</span></div>` : ''}
           <div class="sum-line total"><span>Total recaudación</span><span>${money(e.totalRecaudacion ?? (totalEfectivoOf(e)+(Number(e.totalGastos)||0)+(Number(e.totalRetiros)||0)))}</span></div>
         </div>
       </div>
@@ -1449,6 +1466,7 @@ function buildPrintHTML(e){
       <div class="p-section-title">Arqueo de caja</div>
       ${denomRows || '<div class="p-line">Sin conteo registrado</div>'}
       <div class="p-total"><span>Total efectivo</span><span>${money(totalEfectivo)}</span></div>
+      ${e.totalTarjeta !== undefined ? `<div class="p-total"><span>Total cobrado en tarjeta (datáfono)</span><span>${money(e.totalTarjeta)}</span></div>` : ''}
 
       ${(e.gastos&&e.gastos.length) ? `
       <div class="p-section-title">Gastos</div>
@@ -1553,14 +1571,14 @@ function csvNum(n){ return (Number(n)||0).toFixed(2).replace('.', ','); }
 
 function exportHistorialCSV(){
   if(state.historial.length === 0){ showNotice('Sin datos', 'No hay cierres guardados para exportar.'); return; }
-  const headers = ['Fecha','Empleado','Turno','Fondo retirado','Total efectivo','Total gastos','Total retiros','Total recaudación','Observaciones'];
+  const headers = ['Fecha','Empleado','Turno','Fondo retirado','Total efectivo','Total gastos','Total retiros','Total recaudación','Total cobrado en tarjeta','Observaciones'];
   const ordered = state.historial.slice().sort((a,b)=> (a.savedAt||0) - (b.savedAt||0));
   const rows = ordered.map(e=>{
     const totalEfectivo = totalEfectivoOf(e);
     const totalRecaudacion = e.totalRecaudacion ?? (totalEfectivo + (Number(e.totalGastos)||0) + (Number(e.totalRetiros)||0));
     return [
       formatFecha(e.fecha), e.empleado||'', e.turno||'',
-      csvNum(e.fondoInicial), csvNum(totalEfectivo), csvNum(e.totalGastos), csvNum(e.totalRetiros), csvNum(totalRecaudacion),
+      csvNum(e.fondoInicial), csvNum(totalEfectivo), csvNum(e.totalGastos), csvNum(e.totalRetiros), csvNum(totalRecaudacion), (e.totalTarjeta !== undefined ? csvNum(e.totalTarjeta) : ''),
       (e.observaciones||'').replace(/[\r\n]+/g,' ')
     ];
   });
