@@ -313,6 +313,10 @@ button{ cursor:pointer; }
 .sim-tabla th:first-child, .sim-tabla td:first-child{ text-align:left; }
 .sim-tabla th{ color:var(--suave); font-weight:500; font-size:13px; }
 .sim-tabla tr.act td{ background:var(--amarillo-claro); font-weight:700; }
+.cdr-t{ table-layout:fixed; font-size:14px; } .cdr-t th, .cdr-t td{ white-space:normal; overflow-wrap:anywhere; padding:6px 4px; } .cdr-t th:first-child, .cdr-t td:first-child{ width:30%; }
+.cdr-t th{ font-size:12px; line-height:1.2; }
+@media (max-width:520px){ .cdr-t{ font-size:12.5px; } .cdr-t th{ font-size:11px; } .cdr-t th, .cdr-t td{ padding:6px 2px; } }
+.cdr-c{ border-top:1px solid var(--linea); padding:8px 2px; } .cdr-c b{ font-weight:700; } .cdr-c .n{ display:flex; flex-wrap:wrap; gap:2px 12px; margin-top:3px; font-size:13.5px; }
 .sim-tabla .mas{ color:var(--sube); } .sim-tabla .menos{ color:var(--baja); }
 .sim-slider{ width:100%; accent-color:#1C1A12; margin:8px 0 2px; min-height:36px; }
 .sim-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin:14px 0; }
@@ -1187,7 +1191,7 @@ function cdrBloque(titulo, x){
   var h = '<div class="bloque" style="margin-top:14px"><h3 style="margin:0 0 4px;font-size:17px">' + esc(titulo) + '</h3>' +
     '<p class="sub-txt" style="margin:0 0 6px">Ventas con IVA: <b>' + cdrE(x.v) + '</b> · ' + x.t + ' ' + plural(x.t, 'ticket', 'tickets') + '</p>';
   if (!ms.length) return h + '<p class="sub-txt">Sin cobros este día.</p></div>';
-  h += '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Forma de pago</th><th style="text-align:right">Importe</th><th style="text-align:right">% </th></tr></thead><tbody>' +
+  h += '<div style="overflow-x:auto"><table class="sim-tabla cdr-t"><thead><tr><th>Forma de pago</th><th style="text-align:right">Importe</th><th style="text-align:right">% </th></tr></thead><tbody>' +
     ms.map(function(m){ return '<tr><td>' + esc(m) + '</td><td style="text-align:right">' + cdrE(x.c[m]) + '</td><td style="text-align:right">' + (cobrado ? (x.c[m] / cobrado * 100).toFixed(1).replace('.', ',') : '0') + ' %</td></tr>'; }).join('') +
     '<tr><td><b>Total cobrado</b></td><td style="text-align:right"><b>' + cdrE(cobrado) + '</b></td><td></td></tr></tbody></table></div>';
   if (Math.abs(dif) >= 1) h += '<p class="sub-txt">Diferencia entre lo cobrado y las ventas: <b>' + (dif > 0 ? '+' : '−') + cdrE(Math.abs(dif)) + '</b> (propinas, descuentos de cobro, cuentas a crédito u otros ajustes de Ágora).</p>';
@@ -1216,14 +1220,13 @@ function cdrConciliacion(dia, d){
     var et = cdrTarTickets(g[2]); tTT += et; if (hay){ tCT += ct; hayTar = true; }
     tarF += '<tr><td>' + g[0] + '</td><td style="text-align:right">' + cdrE(et) + '</td><td style="text-align:right">' + (hay ? cdrE(ct) : '<span class="sub-txt">sin dato</span>') + '</td><td style="text-align:right">' + (hay ? dif(ct - et) : '—') + '</td></tr>';
   });
-  if (hayTar) tarH = '<div style="overflow-x:auto;margin-top:8px"><table class="sim-tabla"><thead><tr><th>Tarjeta</th><th style="text-align:right">Tickets Ágora</th><th style="text-align:right">Cierre de datáfono</th><th style="text-align:right">Diferencia</th></tr></thead><tbody>' + tarF +
+  if (hayTar) tarH = '<div style="overflow-x:auto;margin-top:8px"><table class="sim-tabla cdr-t"><thead><tr><th>Tarjeta</th><th style="text-align:right">Tickets Ágora</th><th style="text-align:right">Cierre de datáfono</th><th style="text-align:right">Diferencia</th></tr></thead><tbody>' + tarF +
     '<tr><td><b>Total</b></td><td style="text-align:right"><b>' + cdrE(tTT) + '</b></td><td style="text-align:right"><b>' + cdrE(tCT) + '</b></td><td style="text-align:right">' + dif(tCT - tTT) + '</td></tr></tbody></table></div>' +
     '<p class="sub-txt">Tarjeta de los tickets = solo la forma de pago «Tarjeta» (no incluye «Tarjeta Ágora»). El cierre de datáfono es el «total cobrado en tarjeta» que escribe quien hace el cierre.</p>';
   var con = 0, gas = 0, ret = 0; lista.forEach(function(x){ con += x.contado; gas += x.gastos; ret += x.retiros; });
-  h += '<div style="overflow-x:auto"><table class="sim-tabla"><thead><tr><th>Dónde se recaudó</th><th style="text-align:right">Efectivo tickets</th><th style="text-align:right">Efectivo cierre de caja</th><th style="text-align:right">Diferencia</th></tr></thead><tbody>' + filas + '</tbody></table></div>' + tarH +
-    '<div style="overflow-x:auto;margin-top:8px"><table class="sim-tabla"><thead><tr><th>Cierre</th><th>Turno</th><th>Guardado</th><th>Recaudado en</th><th style="text-align:right">Contado</th><th style="text-align:right">Gastos</th><th style="text-align:right">Retiros</th><th style="text-align:right">Efectivo</th><th style="text-align:right">Tarjeta</th></tr></thead><tbody>' +
-    lista.map(function(x){ return '<tr><td>' + esc(x.emp || '—') + '</td><td>' + esc(x.turno || '—') + '</td><td>' + esc(x.hora) + '</td><td>' + (x.g === 'puerta' ? 'Puerta' : 'Sala y barra') + '</td><td style="text-align:right">' + cdrE(x.contado) + '</td><td style="text-align:right">' + cdrE(x.gastos) + '</td><td style="text-align:right">' + cdrE(x.retiros) + '</td><td style="text-align:right">' + cdrE(x.rec) + '</td><td style="text-align:right">' + (x.tar !== undefined ? cdrE(x.tar) : '—') + '</td></tr>'; }).join('') +
-    '<tr><td><b>Total</b></td><td></td><td></td><td></td><td style="text-align:right"><b>' + cdrE(con) + '</b></td><td style="text-align:right"><b>' + cdrE(gas) + '</b></td><td style="text-align:right"><b>' + cdrE(ret) + '</b></td><td style="text-align:right"><b>' + cdrE(tC) + '</b></td><td style="text-align:right"><b>' + (hayTar ? cdrE(tCT) : '—') + '</b></td></tr></tbody></table></div>' +
+  h += '<div style="overflow-x:auto"><table class="sim-tabla cdr-t"><thead><tr><th>Dónde se recaudó</th><th style="text-align:right">Efectivo tickets</th><th style="text-align:right">Efectivo cierre de caja</th><th style="text-align:right">Diferencia</th></tr></thead><tbody>' + filas + '</tbody></table></div>' + tarH +
+    '<h4 style="margin:12px 0 2px;font-size:15px">Cierres de caja de la jornada</h4>' +
+    lista.map(function(x){ return '<div class="cdr-c"><b>' + esc(x.emp || '—') + '</b> · ' + esc(x.turno || '—') + ' · ' + (x.g === 'puerta' ? 'Puerta' : 'Sala y barra') + ' <span class="sub-txt">(' + esc(x.hora) + ')</span>' + (x.dud ? '<div class="sub-txt" style="color:#b42318">⚠ La fecha escrita en este cierre era el ' + esc(T.fmtFecha(x.dud)) + ', que no encaja con cuándo se guardó. Se ha contado en esta jornada por la fecha de guardado: conviene revisarlo.</div>' : '') + '<div class="n"><span>Contado ' + cdrE(x.contado) + '</span><span>Gastos ' + cdrE(x.gastos) + '</span><span>Retiros ' + cdrE(x.retiros) + '</span><span>Efectivo <b>' + cdrE(x.rec) + '</b></span>' + (x.tar !== undefined ? '<span>Tarjeta <b>' + cdrE(x.tar) + '</b></span>' : '') + '</div></div>'; }).join('') +
     '<p class="sub-txt">Efectivo según cierre de caja = lo contado + los gastos pagados en efectivo + los retiros. Los cierres de <b>Omar</b> y <b>Ricardo</b> se registran en <b>Puerta</b>; los de cualquier otra persona, en <b>Sala y barra</b>. Un cierre guardado antes de las 12:00 cuenta para la jornada anterior.</p></div>';
   return h;
 }
