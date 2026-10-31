@@ -1230,6 +1230,108 @@ function cdrConciliacion(dia, d){
     '<p class="sub-txt">Efectivo según cierre de caja = lo contado + los gastos pagados en efectivo + los retiros. Los cierres de <b>Omar</b> y <b>Ricardo</b> se registran en <b>Puerta</b>; los de cualquier otra persona, en <b>Sala y barra</b>. Un cierre guardado antes de las 12:00 cuenta para la jornada anterior.</p></div>';
   return h;
 }
+/* ===== PDF del cuadre de caja (con logo y colores); se genera en el propio navegador ===== */
+function cdrCargarLib(src){
+  return new Promise(function(ok, ko){ var sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = function(){ ko(new Error('No se ha podido cargar el generador de PDF. Comprueba la conexión y vuelve a intentarlo.')); }; document.head.appendChild(sc); });
+}
+async function cdrPdf(){
+  var v = S.cdr, d = v && v.dias && v.dias[v.dia]; if (!d) return;
+  if (v.pdfBusy) return; v.pdfBusy = true;
+  var btn = document.querySelector('[data-act=cdr-pdf]'); if (btn){ btn.disabled = true; btn.textContent = 'Preparando PDF…'; }
+  try {
+    if (!(window.jspdf && window.jspdf.jsPDF)) await cdrCargarLib('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    if (!(window.jspdf && window.jspdf.jsPDF.API.autoTable)) await cdrCargarLib('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js');
+    var armar = function(k){
+    var doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+    var AM = [222, 222, 222], NE = [0, 0, 0], ROJO = [0, 0, 0], VERDE = [0, 0, 0], GRIS = [90, 90, 90];   /* blanco y negro: AM = gris claro de las cabeceras */
+    var pe = function(c){ return (c / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace(/[  ]/g, ' ').replace(/−/g, '-') + ' €'; };
+    var sg = function(c){ return c === 0 ? 'cuadra' : (c > 0 ? '+' : '-') + pe(Math.abs(c)); };
+    var fecha = T.fmtFecha(v.dia), lista = v.cierres && v.cierres[v.dia] ? v.cierres[v.dia] : [];
+    // cabecera con logo
+    doc.setFillColor(NE[0], NE[1], NE[2]); doc.rect(0, 30, 210, 1.6, 'F');
+    var m = /class="ico" src="(data:image\/png;base64,[^"]+)"/.exec(MARCA);
+    if (m){ try { var ip = doc.getImageProperties(m[1]), hh = 24, ww = hh * ip.width / ip.height; doc.addImage(m[1], 'PNG', 12, 3, ww, hh); } catch (e){} }
+    doc.setTextColor(NE[0], NE[1], NE[2]); doc.setFont('helvetica', 'bold'); doc.setFontSize(19); doc.text('Cuadre de caja diaria', 40, 14);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.text('La Negra Tomasa de Sol', 40, 21);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.text('Jornada ' + fecha, 198, 14, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text('Importes con IVA', 198, 21, { align: 'right' });
+    var y = 36;
+    var titulo = function(t, der){
+      if (y > 262){ doc.addPage(); y = 16; }
+      doc.setFillColor(NE[0], NE[1], NE[2]); doc.rect(14, y, 182, 7 * k, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setFontSize(10.5 * Math.max(k, .85)); doc.text(t, 17, y + 4.9 * k + (k < 1 ? .2 : 0));
+      if (der){ doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.text(der, 193, y + 4.8 * k + (k < 1 ? .2 : 0), { align: 'right' }); }
+      y += 8 * k;
+    };
+    var tabla = function(cab, filas, opc){
+      opc = opc || {};
+      doc.autoTable({ startY: y, head: [cab], body: filas, theme: 'grid', margin: { left: 14, right: 14 },
+        styles: { font: 'helvetica', fontSize: (opc.fs || 9) * k, cellPadding: 1.8 * k, lineColor: [150, 150, 150], lineWidth: 0.2, textColor: NE },
+        headStyles: { fillColor: AM, textColor: NE, fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [247, 247, 247] },
+        columnStyles: opc.cols || {},
+        didParseCell: function(h){
+          if (h.section === 'head'){ var cs = (opc.cols || {})[h.column.index]; if (cs && cs.halign) h.cell.styles.halign = cs.halign; return; }
+          if (h.section !== 'body') return;
+          var raw = h.row.raw, ult = h.row.index === filas.length - 1 && opc.totalUlt;
+          if (ult){ h.cell.styles.fontStyle = 'bold'; h.cell.styles.fillColor = [232, 232, 232]; }
+          if (opc.difCol !== undefined && h.column.index === opc.difCol){
+            var t = String(h.cell.raw); h.cell.styles.fontStyle = 'bold';
+            if (t === 'cuadra') h.cell.styles.textColor = VERDE; else if (/^[+-]/.test(t)) h.cell.styles.textColor = ROJO;
+          }
+        } });
+      y = doc.lastAutoTable.finalY + 6 * k;
+    };
+    var bloque = function(nom, x){
+      var ms = Object.keys(x.c).sort(function(a, b){ return x.c[b] - x.c[a]; }), cob = 0; ms.forEach(function(k){ cob += x.c[k]; });
+      titulo(nom, 'Ventas ' + pe(x.v) + '  ·  ' + x.t + ' tickets');
+      var filas = ms.map(function(k){ return [k, pe(x.c[k]), (cob ? (x.c[k] / cob * 100).toFixed(1).replace('.', ',') : '0') + ' %']; });
+      if (!filas.length) filas.push(['Sin cobros este día', '', '']); else filas.push(['Total cobrado', pe(cob), '']);
+      tabla(['Forma de pago', 'Importe', '%'], filas, { totalUlt: ms.length > 0, cols: { 0: { cellWidth: 90 }, 1: { halign: 'right', cellWidth: 46 }, 2: { halign: 'right', cellWidth: 46 } } });
+    };
+    bloque('VENTAS TOTAL', d.total); bloque('VENTAS DE PUERTA', d.puerta); bloque('VENTAS DE SALA Y BARRA', d.sb);
+    // conciliaciones
+    var gr = [['Puerta', 'puerta', d.puerta], ['Sala y barra', 'sb', d.sb]];
+    if (!lista.length){
+      titulo('CONCILIACIÓN CON EL CIERRE DE CAJA'); doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]); doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+      doc.text('No hay ningún cierre de caja registrado en la app para esta jornada.', 17, y + 3); y += 9 * k;
+    } else {
+      var fe = [], ft = [], tET = 0, tEC = 0, tTT = 0, tTC = 0, hayT = false;
+      gr.forEach(function(g){
+        var l = lista.filter(function(x){ return x.g === g[1]; }), rec = 0, ct = 0, hay = false; l.forEach(function(x){ rec += x.rec; if (x.tar !== undefined){ ct += x.tar; hay = true; } });
+        var et = cdrEfeTickets(g[2]), tt = cdrTarTickets(g[2]); tET += et; tTT += tt; tEC += rec;
+        fe.push([g[0], pe(et), l.length ? pe(rec) : 'sin cierre', l.length ? sg(rec - et) : '-']);
+        if (hay){ tTC += ct; hayT = true; }
+        ft.push([g[0], pe(tt), hay ? pe(ct) : 'sin dato', hay ? sg(ct - tt) : '-']);
+      });
+      fe.push(['Total', pe(tET), pe(tEC), sg(tEC - tET)]); ft.push(['Total', pe(tTT), hayT ? pe(tTC) : '-', hayT ? sg(tTC - tTT) : '-']);
+      titulo('CONCILIACIÓN DEL EFECTIVO CON EL CIERRE DE CAJA');
+      tabla(['Dónde se recaudó', 'Efectivo tickets', 'Efectivo cierre de caja', 'Diferencia'], fe, { totalUlt: true, difCol: 3, cols: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } } });
+      if (hayT){
+        titulo('CONCILIACIÓN DE TARJETA CON EL CIERRE DE DATÁFONO');
+        tabla(['Dónde se cobró', 'Tarjeta tickets', 'Cierre de datáfono', 'Diferencia'], ft, { totalUlt: true, difCol: 3, cols: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } } });
+      }
+      titulo('CIERRES DE CAJA DE LA JORNADA');
+      var fc = lista.map(function(x){ return [x.emp || '-', x.turno || '-', x.g === 'puerta' ? 'Puerta' : 'Sala y barra', x.hora, pe(x.contado), pe(x.gastos), pe(x.retiros), pe(x.rec), x.tar !== undefined ? pe(x.tar) : '-']; });
+      tabla(['Cierre', 'Turno', 'Lugar', 'Guardado', 'Contado', 'Gastos', 'Retiros', 'Efectivo', 'Tarjeta'], fc, { fs: 8, cols: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right', fontStyle: 'bold' }, 8: { halign: 'right' } } });
+      lista.forEach(function(x){ if (x.dud){ if (y > 275){ doc.addPage(); y = 16; } doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.text('AVISO: el cierre de ' + (x.emp || '-') + ' llevaba escrita la fecha ' + T.fmtFecha(x.dud) + ', que no encaja con cuándo se guardó; revisar.', 14, y); y += 5 * k; } });
+      if (y > 272){ doc.addPage(); y = 16; }
+      doc.setTextColor(GRIS[0], GRIS[1], GRIS[2]); doc.setFont('helvetica', 'normal'); doc.setFontSize(8 * Math.max(k, .85));
+      var nota = doc.splitTextToSize('Efectivo según cierre de caja = lo contado + gastos pagados en efectivo + retiros. Los cierres de Omar y Ricardo se registran en Puerta; los de cualquier otra persona, en Sala y barra. La tarjeta de los tickets es solo la forma de pago «Tarjeta» (no incluye «Tarjeta Ágora»).', 182);
+      doc.text(nota, 14, y + 2);
+    }
+    // pie con paginación
+    var n = doc.getNumberOfPages(), hoy = new Date().toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+    for (var i = 1; i <= n; i++){ doc.setPage(i); doc.setFillColor(0, 0, 0); doc.rect(0, 287, 210, 0.6, 'F'); doc.setTextColor(0, 0, 0); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text('La Negra Tomasa de Sol · Cuadre de caja diaria ' + fecha + ' · generado ' + hoy, 14, 293); doc.text('Página ' + i + ' de ' + n, 196, 293, { align: 'right' }); }
+    return doc;
+    };
+    var doc = null;
+    [1, .88, .78, .7, .62, .55].some(function(k){ doc = armar(k); return doc.getNumberOfPages() === 1; });
+        doc.save('cuadre_caja_' + v.dia + '.pdf');
+  } catch (e){
+    v.error = e && e.message ? e.message : String(e);
+  }
+  v.pdfBusy = false; if (S.tab === 'cuadre') pintarPag();
+}
 function cdrCsvTexto(f, d){
   var q = function(x){ x = String(x); return /[";\n]/.test(x) ? '"' + x.replace(/"/g, '""') + '"' : x; }, n = function(c){ return (c / 100).toFixed(2).replace('.', ','); }, L = [];
   L.push(['Cuadre de caja diaria', T.fmtFecha(f)].map(q).join(';')); L.push('');
@@ -1268,7 +1370,7 @@ function vistaCuadre(){
   h += '<h3 style="margin:16px 0 2px;font-size:17px">' + esc(T.fmtFecha(v.dia)) + '</h3>';
   h += cdrBloque('Ventas total', d.total) + cdrBloque('Ventas de puerta', d.puerta) + cdrBloque('Ventas de sala y barra', d.sb);
   h += cdrConciliacion(v.dia, d);
-  h += '<p><button type="button" class="btn claro" data-act="cdr-csv">Descargar para Excel (CSV)</button></p></section>';
+  h += '<p><button type="button" class="btn" data-act="cdr-pdf">Descargar PDF</button> <button type="button" class="btn claro" data-act="cdr-csv">Descargar para Excel (CSV)</button></p></section>';
   return h;
 }
 function vistaServicios(){
@@ -1902,6 +2004,7 @@ function actuar(act, v, k){
     case 'svs-sacar': if (!S.svs) S.svs = svsIni(); svsSacar(); return;
     case 'svs-csv': svsCsv(); return;
     case 'cdr-csv': cdrCsv(); return;
+    case 'cdr-pdf': cdrPdf(); return;
     case 'cdr-recargar': if (S.cdr){ S.cdr.error = ''; } cdrCargar(); return;
     case 'cdr-ant': case 'cdr-sig': if (S.cdr && S.cdr.dias){ var ks2 = Object.keys(S.cdr.dias).sort(), j = ks2.indexOf(S.cdr.dia) + (act === 'cdr-sig' ? 1 : -1); if (j >= 0 && j < ks2.length){ S.cdr.dia = ks2[j]; pintarPag(); } } return;
     case 'reintentar': iniciar(); return;
