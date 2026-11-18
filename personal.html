@@ -496,6 +496,28 @@ function seccionGrupos(r){
   }
   return h;
 }
+function durH(min){ min = Math.round(min || 0); return Math.floor(min / 60) + ' h ' + (min % 60 < 10 ? '0' : '') + (min % 60) + ' min'; }
+function seccionPases(r){
+  var P = r.pases; if (!P) return '';
+  if (r.hasta < P.desde) return '';
+  if (!P.totales.sesiones) return '<section class="caja"><h2>Pases por grupo</h2><p class="suave" style="margin:0">No hay pases en este periodo. Los pases se marcan en la tablet desde el ' + esc(fechaDM(P.desde)) + '.</p></section><div class="espacio"></div>';
+  var t = P.totales, c = P.cierres, h = '<section class="caja"><h2>Pases por grupo</h2>' +
+    (r.desde < P.desde ? '<p class="suave" style="margin:-4px 0 10px">Cuenta desde el ' + esc(fechaDM(P.desde)) + ', primer día con pases en la tablet.</p>' : '') +
+    '<div class="kpis"><div class="kpi"><b>' + t.sesiones + '</b><span>sesiones de grupo (grupo y turno)</span></div>' +
+    '<div class="kpi"><b>' + t.pases + '</b><span>pases (' + (t.sesiones ? (Math.round(t.pases / t.sesiones * 10) / 10).toString().replace('.', ',') : 0) + ' de media)</span></div>' +
+    '<div class="kpi"><b>' + esc(durH(t.trabajo)) + '</b><span>tocando en total</span></div>' +
+    '<div class="kpi"><b>' + t.conAviso + '</b><span>sesiones con aviso</span></div></div>' +
+    '<div class="scroll"><table><thead><tr><th>Grupo</th><th class="n">Sesiones</th><th class="n">Pases</th><th class="n">Media</th><th class="n">Tocando</th><th class="n">Menos de ' + P.min + '</th><th class="n">Sin pases marcados</th><th class="n">Sin salida</th><th class="n">Más de 3 h</th></tr></thead><tbody>' +
+    P.porGrupo.map(function(x){ var av = function(v){ return '<td class="n' + (v ? ' tardio' : '') + '">' + v + '</td>'; };
+      return '<tr><td>' + esc(x.g) + '</td><td class="n">' + x.sesiones + '</td><td class="n">' + x.pases + '</td><td class="n">' + (Math.round(x.pases / x.sesiones * 10) / 10).toString().replace('.', ',') + '</td><td class="n">' + esc(durH(x.trabajo)) + '</td>' + av(x.pocos) + av(x.sinPases) + av(x.sinSalida) + av(x.largas) + '</tr>'; }).join('') +
+    '</tbody></table></div>' +
+    '<p class="suave" style="margin:10px 0 0">Cierre del día en la tablet: <b>' + c.dobleOk + '</b> ' + (c.dobleOk === 1 ? 'día' : 'días') + ' con doble OK' + (c.soloTec ? ', <b>' + c.soloTec + '</b> solo con el OK del técnico' : '') + (c.sinOk ? ', <b>' + c.sinOk + '</b> sin ningún OK' : '') + '.</p>';
+  if (P.sesiones.length && r.diasPeriodo <= 62) h += '<details style="margin-top:12px"' + (P.sesiones.length <= 12 ? ' open' : '') + '><summary>Ver cada sesión (' + P.sesiones.length + ')</summary><div class="scroll"><table><thead><tr><th>Día</th><th>Turno</th><th>Grupo</th><th class="n">Pases</th><th>Horas de los pases</th><th class="n">Tocando</th><th class="n">Salida</th><th>Avisos</th><th>Cierre</th></tr></thead><tbody>' +
+    P.sesiones.slice().reverse().map(function(x){ return '<tr><td>' + esc(fechaDM(x[0])) + '</td><td>' + esc(x[1]) + '</td><td>' + esc(x[2]) + '</td><td class="n">' + x[3] + '</td><td style="white-space:normal">' + (x[9] ? esc(x[9]) : '<span class="suave">–</span>') + '</td><td class="n">' + esc(durH(x[4])) + '</td><td class="n">' + (x[7] ? esc(x[7]) : '–') + '</td><td style="white-space:normal"' + (x[8] ? ' class="tardio"' : '') + '>' + (x[8] ? esc(x[8]) : '<span class="suave">–</span>') + '</td><td>' + esc(x[10]) + '</td></tr>'; }).join('') +
+    '</tbody></table></div></details>';
+  else if (P.sesiones.length) h += '<p class="suave" style="margin-top:10px">El detalle de cada sesión (' + P.sesiones.length + ') va en el Excel.</p>';
+  return h + '</section><div class="espacio"></div>';
+}
 function vistaInformes(){
   var I = S.inf, h = '', r = I.r, per = I.per;
   var nombres = [['dia','Día'],['semana','Semana'],['mes','Mes'],['anio','Año'],['rango','Rango']];
@@ -514,6 +536,7 @@ function vistaInformes(){
     '<p><b>Diferencia media:</b> minutos de media respecto a la hora del turno. Con signo «+» llega después, con «−» llega antes.</p>' +
     '<p><b>Sin ningún registro:</b> personas autorizadas que no aparecen ni una vez en el periodo.</p>' +
     '<p><b>Coste de las actuaciones:</b> cada llegada marcada de un músico es una actuación. La empresa que lleva a los músicos cobra 90 € por actuación (140 € en el turno de las 00:30 de viernes y sábado) más IVA, y paga a cada músico 85 € (110 € en ese turno). Los autónomos no pasan por la empresa: se les considera empresa y facturan 90 € o 140 € más IVA. Los técnicos (Sebastián y Mihai) se cuentan por día, no por turno: cobran 60 € de lunes a jueves y 75 € de viernes a domingo, y la empresa cobra 65 € y 85 € (más IVA). El viernes o sábado es el de la jornada, como en la tablet (hasta las 06:00 sigue siendo la jornada anterior).</p>' +
+    '<p><b>Pases por grupo:</b> una sesión es un grupo en un turno de un día. El responsable de sala marca en la tablet cuándo empieza y termina cada pase y la salida del grupo; la hora la pone el sistema. Cada grupo debe hacer de 3 a 4 pases en 3 horas. «Tocando» suma la duración de los pases. Se registra desde el 18/11/2026. «Cierre» indica si ese día dieron su OK el técnico de sala y el jefe de sala.</p>' +
     '<p>Si el periodo llega hasta hoy o más allá, el informe se corta en el día de servicio actual. Máximo 370 días.</p></details>';
   if (I.cargando) return h + '<section class="caja"><p class="suave" style="margin:0">Preparando el informe…</p></section>';
   if (!r) return h + '<section class="caja"><p class="suave" style="margin:0">Elige un periodo para ver el informe.</p></section>';
@@ -531,6 +554,7 @@ function vistaInformes(){
   if (r.facturas && (r.facturas.con || r.facturas.sin)) h += '<p class="msg ' + (r.facturas.sin ? 'aviso' : 'bien') + '">' + (r.facturas.sin ? 'Hay <b>' + r.facturas.sin + '</b> ' + (r.facturas.sin === 1 ? 'actuación' : 'actuaciones') + ' sin número de factura (' + r.facturas.con + ' con número). Anótalos en la pestaña «Quién ha venido» antes de sacar el informe.' : 'Todas las actuaciones (' + r.facturas.con + ') tienen su número de factura.') + '</p>';
   if (r.pagos) h += costeActuaciones(r);
   if (r.porGrupo && r.porGrupo.length) h += seccionGrupos(r);
+  h += seccionPases(r);
   h += '<section class="caja"><h2>Por turno</h2><table><thead><tr><th>Turno</th><th class="n">Llegadas</th><th class="n">Personas</th><th class="n">Tarde</th></tr></thead><tbody>' +
     r.porTurno.map(function(x){ return '<tr><td><b>' + esc(x.turno) + '</b></td><td class="n">' + x.registros + '</td><td class="n">' + x.personas + '</td><td class="n">' + x.tarde + (x.registros ? ' <span class="suave">(' + pct(x.tarde, x.registros) + ')</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></section><div class="espacio"></div>';
   h += '<section class="caja"><h2>Por persona</h2><div class="scroll"><table><thead><tr><th>Persona</th><th class="n">Días</th><th class="n">Turnos</th><th class="n">Tarde</th><th class="n">Media (min)</th><th class="n">Máx. tarde</th></tr></thead><tbody>' +
@@ -596,6 +620,11 @@ function hojasInforme(r){
   var dgr = [['Día', 'Grupo', 'Actuaciones', 'Coste sin IVA (€)', 'IVA (€)', 'Total con IVA (€)', 'Facturas']].concat((r.porDiaGrupo || []).map(function(x){ return [fechaDM(x.f), x.g, x.act, eurN(x.base), eurN(x.iva), eurN(x.total), x.facturas.join(', ')]; }));
   if (r.facturas) cos.push(['Actuaciones con nº de factura', r.facturas.con, r.facturas.sin ? 'Faltan ' + r.facturas.sin + ' sin número' : 'Todas tienen número']);
   var dia = [['Día', 'Actuaciones', 'De ellas 00:30 vie/sáb', 'Coste sin IVA (€)', 'IVA (€)', 'Total con IVA (€)']].concat(r.porDia.map(function(x){ return [fechaDM(x.f), x.act, x.noche, eurN(x.base), eurN(x.iva), eurN(x.total)]; }));
+  var PS = r.pases && r.pases.totales.sesiones ? r.pases : null;
+  var pgr = PS ? [['Grupo', 'Sesiones', 'Pases', 'Media de pases', 'Tocando (min)', 'Tocando', 'Menos de ' + PS.min + ' pases', 'Sin pases marcados', 'Sin salida', 'Más de 3 h']].concat(PS.porGrupo.map(function(x){ return [x.g, x.sesiones, x.pases, Math.round(x.pases / x.sesiones * 10) / 10, x.trabajo, durH(x.trabajo), x.pocos, x.sinPases, x.sinSalida, x.largas]; })) : null;
+  if (pgr){ pgr.push(['Total', PS.totales.sesiones, PS.totales.pases, Math.round(PS.totales.pases / PS.totales.sesiones * 10) / 10, PS.totales.trabajo, durH(PS.totales.trabajo), '', '', '', '']); pgr.push([]); pgr.push(['Días con doble OK', PS.cierres.dobleOk]); pgr.push(['Días solo con OK del técnico', PS.cierres.soloTec]); pgr.push(['Días sin OK', PS.cierres.sinOk]); pgr.push(['Pases registrados desde', fechaDM(PS.desde)]); }
+  var pdet = PS ? [['Día', 'Turno', 'Grupo', 'Pases', 'Horas de los pases', 'Tocando (min)', 'Desde el 1.er pase hasta la salida (min)', 'Primer pase', 'Salida', 'Avisos', 'Cierre del día']].concat(PS.sesiones.map(function(x){ return [fechaDM(x[0]), x[1], x[2], x[3], x[9], x[4], x[5], x[6], x[7], x[8], x[10]]; })) : null;
+  var hojasPases = PS ? [{ nombre: 'Pases por grupo', filas: pgr, anchos: [26, 10, 8, 14, 14, 14, 16, 18, 12, 12] }, { nombre: 'Pases detalle', filas: pdet, anchos: [12, 8, 24, 8, 44, 14, 20, 12, 10, 48, 14] }] : [];
   return [
     { nombre: 'Coste actuaciones', filas: cos, anchos: [46, 16, 70] },
     { nombre: 'Por músico y técnico', filas: mus, anchos: [30, 12, 12, 16, 16, 16, 12, 16, 18] },
@@ -604,7 +633,7 @@ function hojasInforme(r){
     { nombre: 'Por día', filas: dia, anchos: [14, 12, 16, 16, 12, 16] },
     { nombre: 'Por persona', filas: res, anchos: [30, 22, 10, 16, 22, 18] },
     { nombre: 'Por turno', filas: tur, anchos: [12, 12, 12, 12] },
-    { nombre: 'Detalle', filas: det, anchos: [14, 10, 30, 16, 18, 12, 22, 16, 16, 12, 16, 26, 18] }];
+    { nombre: 'Detalle', filas: det, anchos: [14, 10, 30, 16, 18, 12, 22, 16, 16, 12, 16, 26, 18] }].concat(hojasPases);
 }
 async function construirXlsx(r){
   if (typeof JSZip === 'undefined') throw new Error('No se ha podido cargar el generador de Excel. Recarga la página.');
