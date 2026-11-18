@@ -120,6 +120,10 @@ label{ display:block; font-weight:700; font-size:16px; margin:0 0 6px; }
 .oks li.pend span{ color:var(--suave); }
 .f-ok{ margin:10px 0 6px; }
 .f-ok .campo{ font-size:18px; min-height:52px; }
+.f-ok textarea.campo{ min-height:120px; resize:vertical; font-family:inherit; line-height:1.35; }
+.incid{ border:2px solid var(--tinta); border-radius:8px; padding:10px 12px; margin:0 0 14px; }
+.incid h3{ margin:0 0 6px; font-size:18px; }
+.incid p{ margin:4px 0; white-space:pre-wrap; }
 details{ margin-top:16px; }
 summary{ cursor:pointer; font-weight:700; font-size:15px; min-height:44px; display:flex; align-items:center; }
 </style>
@@ -273,6 +277,7 @@ function vistaCierre(){
   h += '<p class="ayuda">' + S.turnos.map(function(t){ return 'Turno ' + t + ': ' + Object.keys(marcasDe(t)).length; }).join(' · ') + ' · Total: ' + n + ' llegadas</p>';
   h += '<ol class="oks"><li class="' + (c.tec ? 'hecho-ok' : 'pend') + '"><b>1. OK del técnico de sala</b>' + (c.tec ? '<span>✓ ' + esc(c.tec.n) + ' · ' + esc(c.tec.h) + '</span>' : '<span>Pendiente</span>') + '</li>' +
     '<li class="' + (c.jefe ? 'hecho-ok' : 'pend') + '"><b>2. OK del jefe de sala</b>' + (c.jefe ? '<span>✓ ' + esc(c.jefe.n) + ' · ' + esc(c.jefe.h) + '</span>' : '<span>Pendiente</span>') + '</li></ol>';
+  if (c.tec) h += '<div class="incid"><h3>Incidencias de la noche</h3>' + (c.tec.inc ? '<p><b>Técnico de sala:</b> ' + esc(c.tec.inc) + '</p>' : '<p>El técnico de sala no ha anotado incidencias.</p>') + (c.jefe && c.jefe.inc ? '<p><b>Jefe de sala:</b> ' + esc(c.jefe.inc) + '</p>' : '') + '</div>';
   if (c.tec && c.jefe){
     h += '<p class="msg bien">Día cerrado con los dos OK. El informe se ha enviado a Jorge.</p>';
     h += '<details><summary>Reabrir el día (jefe de sala)</summary>' + formOk('reabrir') + '</details>';
@@ -293,9 +298,11 @@ function vistaCierre(){
 function formOk(quien){
   var t = { tecnico: ['Nombre del técnico de sala', 'Código del técnico de sala', 'Doy mi OK (técnico de sala)'], jefe: ['Nombre del jefe de sala', 'Código del jefe de sala', 'Doy mi OK y envío el informe'], reabrir: ['Nombre del jefe de sala', 'Código del jefe de sala', 'Reabrir el día'] }[quien];
   var oc = !!S.enCurso['ok|' + quien];
+  var inc = quien === 'tecnico' ? ['Incidencias de la noche', 'Escribe aquí lo que haya pasado: retrasos, cambios de grupo, problemas de sonido, quejas… Si no ha pasado nada, déjalo en blanco.'] : quien === 'jefe' ? ['Añadir incidencias (opcional)', 'Si quieres añadir algo a lo que ha escrito el técnico de sala.'] : null;
   return '<form class="f-ok" data-form="ok" data-quien="' + quien + '" autocomplete="off">' +
     '<div class="dos"><div><label for="n-' + quien + '">' + t[0] + '</label><input class="campo" id="n-' + quien + '" maxlength="60" required></div>' +
     '<div><label for="c-' + quien + '">' + t[1] + '</label><input class="campo" id="c-' + quien + '" type="password" inputmode="numeric" maxlength="12" autocomplete="one-time-code" required></div></div>' +
+    (inc ? '<div style="margin:10px 0 0"><label for="i-' + quien + '">' + inc[0] + '</label><textarea class="campo" id="i-' + quien + '" maxlength="1500" placeholder="' + inc[1] + '"></textarea></div>' : '') +
     '<button class="btn' + (quien === 'reabrir' ? ' claro' : '') + '" type="submit"' + (oc ? ' disabled' : '') + '>' + (oc ? 'Comprobando…' : t[2]) + '</button></form>';
 }
 
@@ -315,10 +322,10 @@ function vistaTablet(){
   h += S.vista === 'pases' ? vistaPases() : (S.vista === 'cierre' ? vistaCierre() : vistaLlegadas());
   return h;
 }
-function ocupadoEscribiendo(){ var a = document.activeElement; return a && (a.tagName === 'SELECT' || (a.tagName === 'INPUT' && a.id !== 'buscar')); }
+function ocupadoEscribiendo(){ var a = document.activeElement; return a && (a.tagName === 'SELECT' || a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && a.id !== 'buscar')); }
 function pintar(){
   var app = document.getElementById('app'), foco = document.activeElement, id = foco && foco.id, pos = id === 'buscar' ? foco.selectionStart : null;
-  var guard = {}; document.querySelectorAll('.f-ok input').forEach(function(i){ guard[i.id] = i.value; });
+  var guard = {}; document.querySelectorAll('.f-ok input, .f-ok textarea').forEach(function(i){ guard[i.id] = i.value; });
   app.innerHTML = S.paso === 'acceso' ? vistaAcceso() : vistaTablet();
   Object.keys(guard).forEach(function(k){ var e = document.getElementById(k); if (e) e.value = guard[k]; });
   document.getElementById('quien').textContent = S.paso === 'acceso' ? 'Acceso con tu código' : mayus(fechaLarga(S.fecha));
@@ -392,17 +399,17 @@ async function marcarPase(t, g, paso, n, confirmar){
   if (pedirConfirmar && confirm(pedirConfirmar + '\n\nQuedará anotado en el informe.')) marcarPase(t, g, paso, n, true);
 }
 async function darOk(quien, form){
-  var nombre = form.querySelector('[id^="n-"]').value.trim(), codigo = form.querySelector('[id^="c-"]').value.trim();
+  var nombre = form.querySelector('[id^="n-"]').value.trim(), codigo = form.querySelector('[id^="c-"]').value.trim(), ti = form.querySelector('textarea'), incidencias = ti ? ti.value.trim() : '';
   if (!nombre || !codigo){ S.msg = { texto: 'Escribe el nombre y el código.' }; pintar(); return; }
   if (quien === 'tecnico' && avisosDia().length && !confirm('Hay avisos en los pases (están en la lista). ¿Das el OK igualmente? Saldrán en el informe.')) return;
   var k = 'ok|' + quien; S.enCurso[k] = 1; S.msg = null; pintar();
   try {
-    var j = await pedir('asistenciaOk', { fecha: S.fecha, quien: quien, nombre: nombre, codigo: codigo });
+    var j = await pedir('asistenciaOk', { fecha: S.fecha, quien: quien, nombre: nombre, codigo: codigo, incidencias: incidencias });
     S.cierre = j.cierre;
     S.msg = { ok: quien === 'tecnico' ? 'OK del técnico de sala guardado. Falta el OK del jefe de sala.' :
       quien === 'reabrir' ? 'Día reabierto: ya se puede corregir. Al terminar, hay que volver a dar los dos OK.' :
       (j.enviado ? 'Día cerrado con los dos OK. Informe enviado a ' + j.a + '.' : 'Día cerrado con los dos OK, pero el correo no ha salido: ' + (j.errorEnvio || '') ) };
-    form.querySelectorAll('input').forEach(function(i){ i.value = ''; });
+    form.querySelectorAll('input, textarea').forEach(function(i){ i.value = ''; });
   } catch (e){ fallo(e); }
   delete S.enCurso[k];
   try { await cargar(); } catch (x){ pintar(); }
