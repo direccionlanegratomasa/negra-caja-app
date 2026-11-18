@@ -459,15 +459,15 @@ function costeActuaciones(r){
     '<div class="kpi"><b>' + eur0(T.iva) + '</b><span>IVA (' + F.iva + ' %)</span></div>' +
     '<div class="kpi"><b>' + eur0(T.total) + '</b><span>coste con IVA</span></div></div>' +
     '<div class="scroll"><table><thead><tr><th>Concepto</th><th class="n">Importe</th><th>Cómo se calcula</th></tr></thead><tbody>' +
-    fila('Factura de la empresa (sin IVA)', eurC(E.base), 'Músicos: ' + (M.act - M.noche) + ' × ' + eurC(F.fact) + ' y ' + M.noche + ' × ' + eurC(F.factNoche) + ' (00:30 de viernes y sábado)' + (Tc.act ? '. Técnicos: ' + lj + ' × ' + eurC(F.tecFact) + ' (lunes a jueves) y ' + vd + ' × ' + eurC(F.tecFactFin) + ' (viernes a domingo)' : '') + '.') +
+    fila('Factura de la empresa (sin IVA)', eurC(E.base), 'Músicos: ' + (M.act - M.noche) + ' × ' + eurC(F.fact) + ' y ' + M.noche + ' en el turno de las 00:30 de viernes y sábado, a ' + (F.grupoNoche ? eurC(F.grupoNoche) + ' por grupo (desde el ' + fechaDM(F.grupoNocheDesde) + ', vayan los que vayan; antes, ' + eurC(F.factNoche) + ' por músico)' : eurC(F.factNoche)) + (Tc.act ? '. Técnicos: ' + lj + ' × ' + eurC(F.tecFact) + ' (lunes a jueves) y ' + vd + ' × ' + eurC(F.tecFactFin) + ' (viernes a domingo)' : '') + '.') +
     fila('IVA de la empresa (' + F.iva + ' %)', eurC(E.iva), 'La empresa siempre cobra más IVA.') +
     fila('Total a pagar a la empresa', eurC(E.total), 'Factura más IVA.', true) +
-    fila('Autónomos: factura (sin IVA)', eurC(A.base), A.act ? A.act + ' ' + (A.act === 1 ? 'actuación' : 'actuaciones') + ' a las tarifas de la empresa (' + eurC(F.fact) + ' y ' + eurC(F.factNoche) + '). La empresa no participa: se les considera empresa.' : 'Sin actuaciones de autónomos en el periodo.') +
+    fila('Autónomos: factura (sin IVA)', eurC(A.base), A.act ? A.act + ' ' + (A.act === 1 ? 'actuación' : 'actuaciones') + ' a las tarifas de la empresa (' + eurC(F.fact) + ' y, a las 00:30 de vie/sáb, su parte del grupo). La empresa no participa: se les considera empresa.' : 'Sin actuaciones de autónomos en el periodo.') +
     fila('Autónomos: IVA (' + F.iva + ' %)', eurC(A.iva), '') +
     fila('Autónomos: total', eurC(A.total), 'Factura más IVA.', true) +
     fila('Coste total sin IVA', eurC(T.base), 'Empresa más autónomos.') +
     fila('Coste total con IVA', eurC(T.total), 'Lo que sale de caja en el periodo.', true) +
-    fila('Cobran los músicos de la empresa', eurC(M.cobra), 'A ' + eurC(F.pago) + ' por actuación y ' + eurC(F.pagoNoche) + ' en el turno de las 00:30 de viernes y sábado.') +
+    fila('Cobran los músicos de la empresa', eurC(M.cobra), 'A ' + eurC(F.pago) + ' por actuación. En el turno de las 00:30 de viernes y sábado, ' + (F.grupoNoche ? 'se reparten ' + eurC(F.grupoNoche - F.empresaNoche) + ' por grupo (la empresa se queda ' + eurC(F.empresaNoche) + '); antes del ' + fechaDM(F.grupoNocheDesde) + ', ' + eurC(F.pagoNoche) + ' cada uno.' : eurC(F.pagoNoche) + '.')) +
     fila('Cobran los técnicos', eurC(Tc.cobra), Tc.act ? 'Por día: ' + lj + ' × ' + eurC(F.tecPago) + ' (lunes a jueves) y ' + vd + ' × ' + eurC(F.tecPagoFin) + ' (viernes a domingo).' : 'Sin días de técnico en el periodo. Se pagan ' + eurC(F.tecPago) + ' de lunes a jueves y ' + eurC(F.tecPagoFin) + ' de viernes a domingo.') +
     fila('Margen de la empresa', eurC(E.margen), 'Su factura menos lo que cobran los músicos y técnicos' + (E.base ? ' (' + String(Math.round(E.margen / E.base * 1000) / 10).replace('.', ',') + ' % de su factura)' : '') + '.') +
     fila('Coste medio por actuación', nAct ? eurC(medAct) : '–', 'Sin IVA' + (nAct ? ' (con IVA: ' + eurC(medAct * (100 + F.iva) / 100) + ')' : '') + '. No cuenta a los técnicos.') +
@@ -535,7 +535,7 @@ function vistaInformes(){
     '<p><b>Tarde:</b> llegó más de ' + ((r && r.toleranciaMin) || 5) + ' minutos después de la hora del turno (17:00, 21:30 o 00:30). Hasta esos minutos se considera a tiempo.</p>' +
     '<p><b>Diferencia media:</b> minutos de media respecto a la hora del turno. Con signo «+» llega después, con «−» llega antes.</p>' +
     '<p><b>Sin ningún registro:</b> personas autorizadas que no aparecen ni una vez en el periodo.</p>' +
-    '<p><b>Coste de las actuaciones:</b> cada llegada marcada de un músico es una actuación. La empresa que lleva a los músicos cobra 90 € por actuación (140 € en el turno de las 00:30 de viernes y sábado) más IVA, y paga a cada músico 85 € (110 € en ese turno). Los autónomos no pasan por la empresa: se les considera empresa y facturan 90 € o 140 € más IVA. Los técnicos (Sebastián y Mihai) se cuentan por día, no por turno: cobran 60 € de lunes a jueves y 75 € de viernes a domingo, y la empresa cobra 65 € y 85 € (más IVA). El viernes o sábado es el de la jornada, como en la tablet (hasta las 06:00 sigue siendo la jornada anterior).</p>' +
+    '<p><b>Coste de las actuaciones:</b> cada llegada marcada de un músico es una actuación. La empresa que lleva a los músicos cobra 90 € por actuación más IVA y paga a cada músico 85 €. En el turno de las 00:30 de viernes y sábado, desde el 18/11/2026 la actuación cuesta 560 € más IVA por grupo, vayan 3, 4, 5 o más músicos: la empresa se queda 30 € y los músicos se reparten 530 € (con 4, 132,50 € cada uno; con 5, 106 €). Hasta el 17/11 se cobraban 140 € por músico y cada uno cobraba 110 €. Los autónomos no pasan por la empresa: se les considera empresa y facturan 90 € (o su parte del grupo a las 00:30 de vie/sáb) más IVA. Los técnicos (Sebastián y Mihai) se cuentan por día, no por turno: cobran 60 € de lunes a jueves y 75 € de viernes a domingo, y la empresa cobra 65 € y 85 € (más IVA). El viernes o sábado es el de la jornada, como en la tablet (hasta las 06:00 sigue siendo la jornada anterior).</p>' +
     '<p><b>Pases por grupo:</b> una sesión es un grupo en un turno de un día. El responsable de sala marca en la tablet cuándo empieza y termina cada pase y la salida del grupo; la hora la pone el sistema. Cada grupo debe hacer de 3 a 4 pases en 3 horas. «Tocando» suma la duración de los pases. Se registra desde el 18/11/2026. «Cierre» indica si ese día dieron su OK el técnico de sala y el jefe de sala.</p>' +
     '<p>Si el periodo llega hasta hoy o más allá, el informe se corta en el día de servicio actual. Máximo 370 días.</p></details>';
   if (I.cargando) return h + '<section class="caja"><p class="suave" style="margin:0">Preparando el informe…</p></section>';
@@ -595,7 +595,7 @@ function hojasInforme(r){
   var cos = [['Concepto', 'Importe (€)', 'Cómo se calcula'],
     ['Actuaciones', nAct, 'Cada llegada marcada de un músico en un turno. De ellas, ' + T.noche + ' del turno 00:30 de viernes o sábado'],
     ['Días de técnico', Tc.act, 'Un día por técnico, sin importar los turnos: ' + lj + ' de lunes a jueves y ' + vd + ' de viernes a domingo'],
-    ['Factura de la empresa (sin IVA)', eurN(E.base), 'Músicos: ' + (M.act - M.noche) + ' × ' + eurN(F.fact) + ' € y ' + M.noche + ' × ' + eurN(F.factNoche) + ' € (00:30 vie/sáb). Técnicos: ' + lj + ' × ' + eurN(F.tecFact) + ' € (lunes a jueves) y ' + vd + ' × ' + eurN(F.tecFactFin) + ' € (viernes a domingo)'],
+    ['Factura de la empresa (sin IVA)', eurN(E.base), 'Músicos: ' + (M.act - M.noche) + ' × ' + eurN(F.fact) + ' € y ' + M.noche + ' en el turno 00:30 vie/sáb, a ' + (F.grupoNoche ? eurN(F.grupoNoche) + ' € por grupo desde el ' + fechaDM(F.grupoNocheDesde) + ', vayan los que vayan; antes, ' + eurN(F.factNoche) + ' € por músico' : eurN(F.factNoche) + ' €') + '. Técnicos: ' + lj + ' × ' + eurN(F.tecFact) + ' € (lunes a jueves) y ' + vd + ' × ' + eurN(F.tecFactFin) + ' € (viernes a domingo)'],
     ['IVA de la empresa (' + F.iva + ' %)', eurN(E.iva), 'La empresa siempre cobra más IVA'],
     ['Total a pagar a la empresa', eurN(E.total), 'Factura más IVA'],
     ['Autónomos: factura directa (sin IVA)', eurN(A.base), A.act + (A.act === 1 ? ' actuación' : ' actuaciones') + ' a las tarifas de la empresa. La empresa no participa; se les considera empresa'],
@@ -604,7 +604,7 @@ function hojasInforme(r){
     ['Coste total sin IVA', eurN(T.base), 'Empresa más autónomos'],
     ['IVA total', eurN(T.iva), ''],
     ['Coste total con IVA', eurN(T.total), 'Lo que sale de la caja en el periodo'],
-    ['Cobran los músicos de la empresa', eurN(M.cobra), 'Tarifas de ' + eurN(F.pago) + ' € y ' + eurN(F.pagoNoche) + ' € (00:30 vie/sáb)'],
+    ['Cobran los músicos de la empresa', eurN(M.cobra), 'Tarifa de ' + eurN(F.pago) + ' €; 00:30 vie/sáb: ' + (F.grupoNoche ? eurN(F.grupoNoche - F.empresaNoche) + ' € por grupo a repartir (antes, ' + eurN(F.pagoNoche) + ' € cada uno)' : eurN(F.pagoNoche) + ' €')],
     ['Cobran los técnicos', eurN(Tc.cobra), 'Por día: ' + eurN(F.tecPago) + ' € de lunes a jueves y ' + eurN(F.tecPagoFin) + ' € de viernes a domingo'],
     ['Margen de la empresa', eurN(E.margen), 'Su factura menos lo que cobran los músicos y técnicos'],
     ['Margen sobre su factura (%)', E.base ? Math.round(E.margen / E.base * 1000) / 10 : 0, ''],
